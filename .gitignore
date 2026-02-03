@@ -7,3 +7,8 @@
 # Project-specific working dirs (see README)
 image/png2bmp/pngs/
 image/png2bmp/bmps/
+
+# pycache files
+**/__pycache__/
+**/*.pyc
+**/*.pyo

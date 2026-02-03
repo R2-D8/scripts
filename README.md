@@ -83,15 +83,24 @@ make video_downloader
 
 This target runs in “batch mode” (it won’t fail the whole `make` if a few links fail). See the report file for details.
 
-Before starting, the output folder is cleared (so each run starts fresh). If you don’t want that behavior, run the script directly with `--no-clear`.
+By default, the downloader **does not** clear the output folder; it appends new downloads into `other/video_downloader/output/` and auto-suffixes names if needed.
+If you want each run to start fresh, run the script directly with `--clear`.
 
 ## Input format
 
 Edit `other/video_downloader/input.txt`.
 
 - Any line that is a link (starts with `http://` or `https://`) is treated as a URL to download.
-- The filename used for that URL is the previous non-empty, non-comment line.
-- Blank lines are ignored.
+- Filenames are generated as:
+    - `<title>_<stripped_url>___<timestamp>` when both are present
+    - `<title>_<stripped_url>` when only a valid title is present
+    - `<stripped_url>___<timestamp>` when only a valid timestamp is present
+    - `<stripped_url>` when neither is present
+- `title` is the previous non-comment line **only if** it is not a URL and does not contain `:`.
+- A blank line breaks the “title applies to next URL” association (so titles don’t carry across sections), and consecutive URLs will not reuse a previous title.
+- `timestamp` is the first meaningful line immediately after the URL **only if** it contains `:` and is not a URL (e.g. `01:27`).
+- `stripped_url` is the URL with `http://` / `https://` removed and `/` replaced with `_`.
+- Any characters not suitable for filenames are replaced with `_`.
 - Comment lines are ignored if they start with `#` or `//`.
 
 Example:
@@ -116,3 +125,13 @@ This merge step typically requires `ffmpeg`:
 ```bash
 sudo apt install ffmpeg
 ```
+
+### Windows (single self-contained .exe)
+
+If you want to run this on a Windows host with **no Python/yt-dlp/ffmpeg installs**, you can build a single-file executable using PyInstaller.
+
+- Build on Windows: run [other/video_downloader/packaging/windows/build_onefile.cmd](other/video_downloader/packaging/windows/build_onefile.cmd)
+- Output: `other/video_downloader/dist/video_downloader.exe`
+- Usage: put an `input.txt` next to the `.exe` (same format as described above); it will create `output/` and `output.txt` next to the `.exe`.
+
+Note: PyInstaller onefile executables unpack embedded binaries to a temporary folder at runtime, but everything is shipped inside the `.exe`.

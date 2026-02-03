@@ -11,7 +11,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -24,25 +23,57 @@ _INVALID_FILENAME_CHARS = re.compile(r"[\\/:*?\"<>|\x00-\x1f]")
 _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
+def _is_frozen() -> bool:
+	return bool(getattr(sys, "frozen", False))
+
+
+def _bundle_root_dir() -> Path:
+	"""Return the directory containing bundled resources when frozen.
+
+	For PyInstaller onefile builds, this is typically sys._MEIPASS.
+	"""
+	meipass = getattr(sys, "_MEIPASS", None)
+	if meipass:
+		return Path(meipass)
+	# Fallback: directory containing the executable.
+	return Path(sys.executable).resolve().parent
+
+
+def _prepend_to_path(dir_path: Path) -> None:
+	current = os.environ.get("PATH", "")
+	parts = [p for p in current.split(os.pathsep) if p]
+	normalized = str(dir_path)
+	if parts and parts[0] == normalized:
+		return
+	if normalized in parts:
+		parts.remove(normalized)
+	os.environ["PATH"] = os.pathsep.join([normalized, *parts])
+
+
+def _bundled_bin(name: str) -> str | None:
+	bin_dir = _bundle_root_dir() / "bin"
+	candidate = bin_dir / name
+	if candidate.exists():
+		_prepend_to_path(bin_dir)
+		return str(candidate)
+	return None
+
+
 def _sanitize_filename_stem(name: str) -> str:
 	stem = name.strip()
 	stem = re.sub(r"\s+", " ", stem)
 	stem = _INVALID_FILENAME_CHARS.sub("_", stem)
+	# Replace any remaining odd characters with underscores for portable filenames.
+	# Keep letters, digits, space, dot, underscore, hyphen.
+	stem = re.sub(r"[^A-Za-z0-9 ._-]+", "_", stem)
 	stem = stem.strip(" .")
 	return stem or "video"
 
 
-def _iter_nonempty_lines(path: Path) -> Iterable[str]:
-	with path.open("r", encoding="utf-8") as f:
-		for raw in f:
-			line = raw.strip()
-			if not line:
-				continue
-			if line.startswith("#"):
-				continue
-			if line.startswith("//"):
-				continue
-			yield line
+def _url_to_name_component(url: str) -> str:
+	# Per requirement: strip scheme and substitute '/' with '_'.
+	without_scheme = _URL_RE.sub("", url.strip())
+	return without_scheme.replace("/", "_")
 
 
 def _is_url(line: str) -> bool:
@@ -51,15 +82,62 @@ def _is_url(line: str) -> bool:
 
 def parse_entries(input_file: Path) -> list[Entry]:
 	entries: list[Entry] = []
-	last_name_candidate: str | None = None
+	last_title_candidate: str | None = None
 
-	for line in _iter_nonempty_lines(input_file):
+	# Read all lines so we can look ahead (for optional metadata on the next line).
+	# utf-8-sig tolerates a UTF-8 BOM (common on Windows Notepad files).
+	lines = input_file.read_text(encoding="utf-8-sig").splitlines()
+	idx = 0
+	while idx < len(lines):
+		line = lines[idx].strip()
+		idx += 1
+
+		if not line:
+			# A blank line breaks the "name applies to next URL" association.
+			last_title_candidate = None
+			continue
+		if line.startswith("#") or line.startswith("//"):
+			continue
+
 		if _is_url(line):
-			name = last_name_candidate or "video"
+			url_component = _url_to_name_component(line)
+			base_name = f"{last_title_candidate}_{url_component}" if last_title_candidate else url_component
+			last_title_candidate = None
+
+			# Optional: if the next meaningful line contains ':' (e.g. 01:27),
+			# incorporate it into the filename as <name>___<timestamp-with-:_as_->_>.
+			suffix: str | None = None
+			lookahead = idx
+			while lookahead < len(lines):
+				next_line_raw = lines[lookahead]
+				next_line = next_line_raw.strip()
+				if not next_line:
+					# Blank line means no metadata for this URL.
+					break
+				if next_line.startswith("#") or next_line.startswith("//"):
+					lookahead += 1
+					continue
+				# If the next meaningful line is another URL, stop.
+				if _is_url(next_line):
+					break
+				if ":" in next_line:
+					suffix = next_line.replace(":", "_")
+					# Consume this metadata line so it doesn't become a name candidate.
+					idx = lookahead + 1
+				break
+				# Otherwise it's some other text; do not consume it.
+				break
+
+			name = f"{base_name}___{suffix}" if suffix else base_name
 			entries.append(Entry(name=name, url=line))
 			continue
-		# Any non-url line can act as the filename for the next url.
-		last_name_candidate = line
+
+		# Any non-url, non-comment line can act as the title for the next URL,
+		# except lines containing ':' (commonly timestamps like 01:27).
+		if ":" in line:
+			last_title_candidate = None
+			continue
+		last_title_candidate = line
 
 	return entries
 
@@ -76,14 +154,21 @@ def _choose_unique_stem(output_dir: Path, desired_stem: str) -> str:
 
 
 def _require_yt_dlp() -> str:
+	# If bundled (PyInstaller), prefer the embedded binary.
+	bundled = _bundled_bin("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
+	if bundled:
+		return bundled
+
 	exe = shutil.which("yt-dlp")
 	if exe:
 		return exe
 	raise FileNotFoundError(
-		"yt-dlp not found in PATH. Install it (recommended):\n"
+		"yt-dlp not found. Either install it or build a bundled executable.\n\n"
+		"Linux install (recommended):\n"
 		"  sudo apt install yt-dlp\n"
 		"or:\n"
-		"  python3 -m pip install -U yt-dlp\n"
+		"  python3 -m pip install -U yt-dlp\n\n"
+		"Windows: see the packaging script under other/video_downloader/packaging/windows" 
 	)
 
 
@@ -186,12 +271,19 @@ def download_entry(
 
 
 def main(argv: list[str]) -> int:
-	script_dir = Path(__file__).resolve().parent
+	# When frozen (PyInstaller), __file__ points inside the extracted bundle.
+	# Users expect input/output next to the .exe.
+	script_dir = (
+		Path(sys.executable).resolve().parent
+		if _is_frozen()
+		else Path(__file__).resolve().parent
+	)
 
 	parser = argparse.ArgumentParser(
 		description=(
-			"Download videos listed in a text file. Any line that is a URL is treated as a download link, "
-			"and the previous non-empty, non-comment line is used as the output filename."
+			"Download videos listed in a text file. Any line that is a URL is treated as a download link. "
+			"If the previous non-comment line is a name, it is used as the output filename. "
+			"Otherwise, a filename is derived from the URL."
 		)
 	)
 	parser.add_argument(
@@ -248,9 +340,15 @@ def main(argv: list[str]) -> int:
 		help="Always exit 0 even if some downloads fail (useful for Makefile batches).",
 	)
 	parser.add_argument(
+		"--clear",
+		action="store_true",
+		help="Clear the output directory before downloading (default: keep existing files).",
+	)
+	# Backwards-compat for older README/scripts.
+	parser.add_argument(
 		"--no-clear",
 		action="store_true",
-		help="Do not clear the output directory before downloading.",
+		help=argparse.SUPPRESS,
 	)
 
 	args = parser.parse_args(argv)
@@ -260,7 +358,9 @@ def main(argv: list[str]) -> int:
 		return 2
 
 	args.output_dir.mkdir(parents=True, exist_ok=True)
-	if not args.no_clear:
+	# Default is now to keep output/ contents (append mode).
+	# --no-clear is accepted for compatibility and effectively means the same.
+	if args.clear:
 		try:
 			_clear_output_dir(args.output_dir)
 		except Exception as e:
