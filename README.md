@@ -1,3 +1,14 @@
+# Overview
+
+This repository is a grab-bag of small, standalone scripts (plus a `Makefile` for convenience) that I use for common tasks.
+
+General layout:
+
+- `image/`: image-related utilities (format conversion, generating downscaled variants, etc.)
+- `other/`: unrelated utilities (e.g. batch video downloading)
+
+Most scripts can be run either via `make <target>` or directly with `python3 ...`. Individual sections below document inputs/outputs and any extra dependencies.
+
 # PNG <-> BMP
 
 Dump PNG files into `image/png2bmp/pngs` and/or BMP files into `image/png2bmp/bmps`, then run:
@@ -40,7 +51,6 @@ To change how far it goes (generate up to $1/2^N$):
 make subimages N=5
 ```
 
-This generates resized copies at 1/2, 1/4, 1/8, ... up to 1/64 into `subimages/output`, preserving any subfolder structure.
 This generates resized copies at 1/2, 1/4, 1/8, ... up to 1/64 into `image/subimages/output`, preserving any subfolder structure.
 
 Output files are written directly into `image/subimages/output` (no scale subfolders) and are named like `1_2_<original_name>`, `1_4_<original_name>`, etc. The output folder is wiped at the start of each run.
