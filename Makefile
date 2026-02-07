@@ -1,7 +1,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help venv deps clean_venv tools ffmpeg bootstrap png2bmp subimages video_downloader pdf_invert
+.PHONY: help venv deps clean_venv tools ffmpeg bootstrap png2bmp subimages video_downloader pdf_invert pdf_invert_keep_text
 
 VENV ?= .venv
 VENV_PYTHON := $(VENV)/bin/python
@@ -23,6 +23,7 @@ PNG2BMP_ARGS ?=
 SUBIMAGES_ARGS ?=
 VIDEO_DOWNLOADER_ARGS ?=
 PDF_INVERT_ARGS ?=
+PDF_INVERT_KEEP_TEXT_ARGS ?=
 
 venv:
 	python3 -m venv $(VENV)
@@ -48,24 +49,32 @@ bootstrap: deps ffmpeg
 
 help:
 	@printf "Setup:\n"
-	@printf "  %-17s %s\n" "bootstrap" "One-shot: create .venv, install deps, download ffmpeg"
-	@printf "  %-17s %s\n" "deps"      "Install Python deps into .venv (requirements.txt)"
-	@printf "  %-17s %s\n" "ffmpeg"    "Download local static ffmpeg into tools/ffmpeg"
-	@printf "  %-17s %s\n" "tools"     "Install all local tools (currently: ffmpeg)"
-	@printf "  %-17s %s\n" "clean_venv" "Remove .venv"
+	@printf "  %-24s %s\n" "bootstrap" "One-shot: create .venv, install deps, download ffmpeg"
+	@printf "  %-24s %s\n" "deps"      "Install Python deps into .venv (requirements.txt)"
+	@printf "  %-24s %s\n" "ffmpeg"    "Download local static ffmpeg into tools/ffmpeg"
+	@printf "  %-24s %s\n" "tools"     "Install all local tools (currently: ffmpeg)"
+	@printf "  %-24s %s\n" "clean_venv" "Remove .venv"
 	@printf "\nScripts:\n"
-	@printf "  %-17s %s\n" "png2bmp" "Convert between PNG/BMP (image/png2bmp/)"
-	@printf "  %-17s %s\n" ""      "Args: PNG2BMP_ARGS='...'"
-	@printf "  %-17s %s\n" ""      "Example: make png2bmp"
-	@printf "  %-17s %s\n" "subimages" "Generate downscaled images (set N=<power>)"
-	@printf "  %-17s %s\n" ""        "Args: SUBIMAGES_ARGS='...' (optional)"
-	@printf "  %-17s %s\n" ""        "Example: make subimages N=5 SUBIMAGES_ARGS='--recursive'"
-	@printf "  %-17s %s\n" "video_downloader" "Download URLs from video/video_downloader/input.txt"
-	@printf "  %-17s %s\n" ""              "Args: VIDEO_DOWNLOADER_ARGS='...' (optional)"
-	@printf "  %-17s %s\n" ""              "Example: make video_downloader VIDEO_DOWNLOADER_ARGS='--clear'"
-	@printf "  %-17s %s\n" "pdf_invert" "Invert PDFs in pdf/invert_colors/input"
-	@printf "  %-17s %s\n" ""         "Args: PDF_INVERT_ARGS='...' (optional)"
-	@printf "  %-17s %s\n" ""         "Example: make pdf_invert PDF_INVERT_ARGS='--overwrite'"
+	@printf "  %-24s %s\n" "png2bmp" "Convert between PNG/BMP (image/png2bmp/)"
+	@printf "  %-24s %s\n" "" "Args: PNG2BMP_ARGS='...'"
+	@printf "  %-24s %s\n" "" "Example: make png2bmp"
+	@printf "  %-24s %s\n" "subimages" "Generate downscaled images (set N=<power>)"
+	@printf "  %-24s %s\n" "" "Args: SUBIMAGES_ARGS='...' (optional)"
+	@printf "  %-24s %s\n" "" "Example: make subimages"
+	@printf "  %-24s %s\n" "" "         N=5 SUBIMAGES_ARGS='--recursive'"
+	@printf "  %-24s %s\n" "video_downloader" "Download URLs from video/video_downloader/input.txt"
+	@printf "  %-24s %s\n" "" "Args: VIDEO_DOWNLOADER_ARGS='...' (optional)"
+	@printf "  %-24s %s\n" "" "Example: make video_downloader"
+	@printf "  %-24s %s\n" "" "         VIDEO_DOWNLOADER_ARGS='--clear'"
+	@printf "  %-24s %s\n" "pdf_invert" "Invert PDFs (flattened) in pdf/invert_colors/input"
+	@printf "  %-24s %s\n" "" "Args: PDF_INVERT_ARGS='...' (optional)"
+	@printf "  %-24s %s\n" "" "Example: make pdf_invert"
+	@printf "  %-24s %s\n" "" "         PDF_INVERT_ARGS='--overwrite'"
+	@printf "  %-24s %s\n" "pdf_invert_keep_text" "Invert PDFs but try to keep text selectable"
+	@printf "  %-24s %s\n" "" "Input: pdf/invert_colors_keep_text/input"
+	@printf "  %-24s %s\n" "" "Args: PDF_INVERT_KEEP_TEXT_ARGS='...' (optional)"
+	@printf "  %-24s %s\n" "" "Example: make pdf_invert_keep_text"
+	@printf "  %-24s %s\n" "" "         PDF_INVERT_KEEP_TEXT_ARGS='--invert-images'"
 
 clean_venv:
 	rm -rf $(VENV)
@@ -93,3 +102,6 @@ video_downloader: $(DEPS_STAMP) ffmpeg
 
 pdf_invert: $(DEPS_STAMP)
 	$(PYTHON) $(PYTHONFLAGS) pdf/invert_colors/invert_pdf_colors.py $(PDF_INVERT_ARGS)
+
+pdf_invert_keep_text: $(DEPS_STAMP)
+	$(PYTHON) $(PYTHONFLAGS) pdf/invert_colors_keep_text/invert_pdf_colors_keep_text.py $(PDF_INVERT_KEEP_TEXT_ARGS)

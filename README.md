@@ -35,11 +35,16 @@ Notes:
 
 # PDF (Invert Colors)
 
-Inverts (negates) all colors for every PDF in an input folder.
+There are two PDF color-inversion scripts:
 
-This script is designed to be as compatible as possible: it rasterizes each page to an image, inverts pixels, then rebuilds a new PDF. This works for essentially any PDF, but the output will be a _flattened_ PDF (no selectable text / vector shapes), and file size depends on the chosen DPI.
+1. **Robust (rasterize pages)**: works on almost any PDF, but the result is _flattened_ (no selectable text).
+2. **Keep text selectable (best-effort)**: tries to preserve text as text (select/copy/search), but is less reliable and may not preserve vector graphics.
 
 Install dependencies via the repo venv (recommended): `make deps`
+
+## Robust inverter (flattened)
+
+This script rasterizes each page to an image, inverts pixels, then rebuilds a new PDF. This works for essentially any PDF, but the output will be a flattened PDF (no selectable text / vector shapes), and file size depends on the chosen DPI.
 
 Put PDFs into `pdf/invert_colors/input/` and run:
 
@@ -47,17 +52,11 @@ Put PDFs into `pdf/invert_colors/input/` and run:
 make pdf_invert
 ```
 
-If you want to overwrite existing outputs:
-
-```bash
-make pdf_invert PDF_INVERT_ARGS="--overwrite"
-```
-
 Outputs are written to `pdf/invert_colors/output/` as:
 
 - `<input_name>_invert.pdf`
 
-Useful options (via Makefile args):
+Useful options:
 
 ```bash
 # control quality/size
@@ -65,7 +64,41 @@ make pdf_invert PDF_INVERT_ARGS="--dpi 150"
 
 # encrypted PDFs
 make pdf_invert PDF_INVERT_ARGS="--password 'your-password'"
+
+# overwrite existing outputs
+make pdf_invert PDF_INVERT_ARGS="--overwrite"
 ```
+
+## Keep-text inverter (best-effort)
+
+This script tries to keep the PDF structure intact: it prepends a black background to each page and rewrites the existing page content streams to invert color-setting operators (text + vector graphics). That means things like page divider lines and bold/italic text should remain, because the original drawing/text commands are still there.
+
+By default it **keeps images unchanged**. If you want images inverted too, pass `--invert-images` (it uses PDF `/Decode` arrays when possible).
+
+Put PDFs into `pdf/invert_colors_keep_text/input/` and run:
+
+```bash
+make pdf_invert_keep_text
+```
+
+Outputs are written to `pdf/invert_colors_keep_text/output/` as:
+
+- `<input_name>_invert_keep_text.pdf`
+
+Useful options:
+
+```bash
+# also invert embedded images
+make pdf_invert_keep_text PDF_INVERT_KEEP_TEXT_ARGS="--invert-images"
+
+# encrypted PDFs
+make pdf_invert_keep_text PDF_INVERT_KEEP_TEXT_ARGS="--password 'your-password'"
+
+# overwrite existing outputs
+make pdf_invert_keep_text PDF_INVERT_KEEP_TEXT_ARGS="--overwrite"
+```
+
+Limitations (expected): some PDFs use advanced color spaces (patterns / ICCBased / DeviceN) or inline images; those may not invert perfectly.
 
 # PNG <-> BMP
 
