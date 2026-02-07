@@ -1,0 +1,8 @@
+# Python dependencies for all scripts in this repo.
+#
+# Create/update a repo-wide venv with:
+#   make deps
+
+Pillow>=9.0
+PyMuPDF>=1.23
+yt-dlp>=2024.1.0

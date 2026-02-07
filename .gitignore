@@ -12,3 +12,10 @@ image/png2bmp/bmps/
 **/__pycache__/
 **/*.pyc
 **/*.pyo
+
+# Virtual environments
+.venv/
+**/.venv/
+
+# Downloaded local tools
+tools/ffmpeg/

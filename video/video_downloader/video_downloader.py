@@ -50,6 +50,24 @@ def _prepend_to_path(dir_path: Path) -> None:
 	os.environ["PATH"] = os.pathsep.join([normalized, *parts])
 
 
+def _maybe_prepend_repo_tools(script_dir: Path) -> None:
+	"""Best-effort: make repo-local tools discoverable when running from source.
+
+	This lets a freshly bootstrapped repo work even when the user runs this
+	script directly (not via Makefile), without requiring manual activation.
+	"""
+	if _is_frozen():
+		return
+	# repo root is two levels up: video/video_downloader/
+	repo_root = script_dir.parent.parent
+	venv_bin = repo_root / ".venv" / "bin"
+	tools_ffmpeg_bin = repo_root / "tools" / "ffmpeg" / "bin"
+	if tools_ffmpeg_bin.exists():
+		_prepend_to_path(tools_ffmpeg_bin)
+	if venv_bin.exists():
+		_prepend_to_path(venv_bin)
+
+
 def _bundled_bin(name: str) -> str | None:
 	bin_dir = _bundle_root_dir() / "bin"
 	candidate = bin_dir / name
@@ -278,6 +296,7 @@ def main(argv: list[str]) -> int:
 		if _is_frozen()
 		else Path(__file__).resolve().parent
 	)
+	_maybe_prepend_repo_tools(script_dir)
 
 	parser = argparse.ArgumentParser(
 		description=(
