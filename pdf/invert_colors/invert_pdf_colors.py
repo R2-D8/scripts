@@ -9,7 +9,7 @@ Default folders are relative to this script:
 - input/:  place PDFs here
 - output/: inverted PDFs written here
 
-Output name: <input_name>_invert.pdf
+Output name: <input_name>_inverted.pdf
 """
 
 from __future__ import annotations
@@ -45,41 +45,53 @@ class RunResult:
 
 
 def _iter_input_pdfs(input_dir: Path) -> Iterable[Path]:
+    yield from _iter_input_pdfs_recursive(input_dir=input_dir, recursive=False)
+
+
+def _iter_input_pdfs_recursive(*, input_dir: Path, recursive: bool) -> Iterable[Path]:
     if not input_dir.exists():
         return
-    for path in sorted(input_dir.iterdir()):
+
+    it = input_dir.rglob("*") if recursive else input_dir.iterdir()
+    for path in sorted(it):
         if path.is_file() and path.suffix.lower() == ".pdf":
             yield path
 
 
-def _build_output_path(output_dir: Path, input_pdf: Path) -> Path:
-    return output_dir / f"{input_pdf.stem}_invert.pdf"
+def _build_output_path(*, output_dir: Path, input_dir: Path, input_pdf: Path) -> Path:
+    rel = input_pdf.relative_to(input_dir)
+    return output_dir / rel.parent / f"{rel.stem}_inverted.pdf"
 
 
-def _clear_output_dir(output_dir: Path) -> None:
-    """Remove existing files under output_dir (best-effort).
+def _clear_planned_outputs(*, output_dir: Path, input_dir: Path, inputs: Iterable[Path]) -> None:
+    """Remove existing output files this run would generate (best-effort).
 
-    To avoid surprising data loss, this only deletes PDF files.
+    IMPORTANT: Do not delete arbitrary PDFs under output_dir.
+    This prevents accidental data loss when output_dir is a real folder that
+    already contains user documents (and especially when output_dir == input_dir).
     """
 
-    if not output_dir.exists():
-        return
-    if not output_dir.is_dir():
+    if output_dir.exists() and not output_dir.is_dir():
         raise NotADirectoryError(f"Output dir is not a directory: {output_dir}")
 
-    for path in sorted(output_dir.rglob("*"), reverse=True):
+    for input_pdf in inputs:
+        out = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_pdf=input_pdf)
         try:
-            if path.is_file() and path.suffix.lower() == ".pdf":
-                path.unlink()
-            elif path.is_dir():
-                # Clean up empty subfolders left behind.
-                try:
-                    path.rmdir()
-                except OSError:
-                    pass
+            if out.exists() and out.is_file():
+                out.unlink()
         except Exception:
             # Best-effort cleanup; processing can still proceed.
             pass
+
+    # Best-effort: remove empty subfolders under output_dir.
+    if not output_dir.exists():
+        return
+    for path in sorted(output_dir.rglob("*"), reverse=True):
+        if path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
 
 
 def invert_pdf(
@@ -173,7 +185,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     script_dir = Path(__file__).resolve().parent
 
     p = argparse.ArgumentParser(
-        description="Invert all colors for PDFs in a folder (writes <name>_invert.pdf).",
+        description="Invert all colors for PDFs in a folder (writes <name>_inverted.pdf).",
     )
     p.add_argument(
         "--input-dir",
@@ -186,6 +198,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=script_dir / "output",
         help="Folder for inverted PDFs (default: ./output next to the script)",
+    )
+    p.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Also process PDFs in subdirectories (preserves folder structure in output)",
     )
     p.add_argument(
         "--dpi",
@@ -215,19 +232,19 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = _parse_args(argv)
 
-    input_dir: Path = args.input_dir
-    output_dir: Path = args.output_dir
+    input_dir: Path = Path(args.input_dir).expanduser()
+    output_dir: Path = Path(args.output_dir).expanduser()
 
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    inputs = list(_iter_input_pdfs(input_dir))
+    inputs = list(_iter_input_pdfs_recursive(input_dir=input_dir, recursive=bool(args.recursive)))
     if not inputs:
         print(f"No PDFs found in: {input_dir}", file=sys.stderr)
         return 0
 
-    # Start from a clean output folder for this batch.
-    _clear_output_dir(output_dir)
+    # Start from a clean output set for this batch (only delete files we would generate).
+    _clear_planned_outputs(output_dir=output_dir, input_dir=input_dir, inputs=inputs)
 
     processed = 0
     succeeded = 0
@@ -235,7 +252,7 @@ def main(argv: list[str]) -> int:
 
     for input_pdf in inputs:
         processed += 1
-        output_pdf = _build_output_path(output_dir, input_pdf)
+        output_pdf = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_pdf=input_pdf)
 
         try:
             invert_pdf(
@@ -246,10 +263,19 @@ def main(argv: list[str]) -> int:
                 overwrite=bool(args.overwrite),
             )
             succeeded += 1
-            print(f"OK  {input_pdf.name} -> {output_pdf.name}")
+            try:
+                in_rel = input_pdf.relative_to(input_dir)
+                out_rel = output_pdf.relative_to(output_dir)
+                print(f"OK  {in_rel} -> {out_rel}")
+            except Exception:
+                print(f"OK  {input_pdf.name} -> {output_pdf.name}")
         except Exception as exc:
             failed += 1
-            print(f"ERR {input_pdf.name}: {exc}", file=sys.stderr)
+            try:
+                in_rel = input_pdf.relative_to(input_dir)
+                print(f"ERR {in_rel}: {exc}", file=sys.stderr)
+            except Exception:
+                print(f"ERR {input_pdf.name}: {exc}", file=sys.stderr)
 
     result = RunResult(processed=processed, succeeded=succeeded, failed=failed)
     print(f"Done. processed={result.processed} ok={result.succeeded} failed={result.failed}")

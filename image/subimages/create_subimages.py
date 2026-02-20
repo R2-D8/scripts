@@ -13,6 +13,7 @@ Default layout:
 Usage:
     python3 subimages/create_subimages.py
     python3 subimages/create_subimages.py subimages/input -o subimages/output
+    python3 subimages/create_subimages.py --input-dir /path/to/input --output-dir /path/to/output
     python3 subimages/create_subimages.py subimages/input -r --max-denom 256
 
 Notes:
@@ -205,14 +206,30 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument(
         "input",
         nargs="?",
-        default=str(default_input),
+        type=Path,
+        default=default_input,
         help="Input image file or directory (default: subimages/input)",
+    )
+    parser.add_argument(
+        "--input-dir",
+        dest="input",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Alias for the positional input path (directory or file)",
     )
     parser.add_argument(
         "-o",
         "--output",
-        default=str(default_output),
+        type=Path,
+        default=default_output,
         help="Output directory (default: subimages/output)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        dest="output",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Alias for --output",
     )
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into subdirectories")
 
@@ -239,8 +256,8 @@ def main(argv: Sequence[str]) -> int:
 
     args = parser.parse_args(list(argv))
 
-    input_path = Path(args.input)
-    output_root = Path(args.output)
+    input_path: Path = args.input
+    output_root: Path = args.output
 
     if not input_path.exists():
         print(f"Input not found: {input_path}", file=sys.stderr)

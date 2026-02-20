@@ -54,19 +54,28 @@ make pdf_invert
 
 Outputs are written to `pdf/invert_colors/output/` as:
 
-- `<input_name>_invert.pdf`
+- `<input_name>_inverted.pdf`
 
 Useful options:
 
 ```bash
 # control quality/size
-make pdf_invert PDF_INVERT_ARGS="--dpi 150"
+make pdf_invert PDF_ARGS="--dpi 150"
 
 # encrypted PDFs
-make pdf_invert PDF_INVERT_ARGS="--password 'your-password'"
+make pdf_invert PDF_ARGS="--password 'your-password'"
 
 # overwrite existing outputs
-make pdf_invert PDF_INVERT_ARGS="--overwrite"
+make pdf_invert PDF_ARGS="--overwrite"
+
+# include PDFs in subdirectories (keeps the same subdir structure under output/)
+make pdf_invert PDF_ARGS="--recursive"
+
+# custom input/output locations
+make pdf_invert INPUT_DIR="/abs/path/in" OUTPUT_DIR="/abs/path/out"
+
+# or via flags (passed through)
+make pdf_invert PDF_ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
 ```
 
 ## Keep-text inverter (best-effort)
@@ -83,19 +92,30 @@ make pdf_invert_keep_text
 
 Outputs are written to `pdf/invert_colors_keep_text/output/` as:
 
-- `<input_name>_invert_keep_text.pdf`
+- `<input_name>_inverted.pdf`
 
 Useful options:
 
 ```bash
 # also invert embedded images
-make pdf_invert_keep_text PDF_INVERT_KEEP_TEXT_ARGS="--invert-images"
+make pdf_invert_keep_text PDF_KT_ARGS="--invert-images"
 
 # encrypted PDFs
-make pdf_invert_keep_text PDF_INVERT_KEEP_TEXT_ARGS="--password 'your-password'"
+make pdf_invert_keep_text PDF_KT_ARGS="--password 'your-password'"
 
 # overwrite existing outputs
-make pdf_invert_keep_text PDF_INVERT_KEEP_TEXT_ARGS="--overwrite"
+make pdf_invert_keep_text PDF_KT_ARGS="--overwrite"
+
+# include PDFs in subdirectories (keeps the same subdir structure under output/)
+make pdf_invert_keep_text PDF_KT_ARGS="--recursive"
+
+# custom input/output locations
+make pdf_invert_keep_text \
+    INPUT_DIR="/abs/path/in" \
+    OUTPUT_DIR="/abs/path/out"
+
+# or via flags (passed through)
+make pdf_invert_keep_text PDF_KT_ARGS="--input-dir /abs/path/in --output-dir /abs/path/out"
 ```
 
 Limitations (expected): some PDFs use advanced color spaces (patterns / ICCBased / DeviceN) or inline images; those may not invert perfectly.
@@ -123,6 +143,15 @@ Put `.png` or `.bmp` images into `image/subimages/input` and run:
 
 ```bash
 make subimages
+```
+
+To use custom input/output directories:
+
+```bash
+make subimages INPUT_DIR="/abs/path/in" OUTPUT_DIR="/abs/path/out"
+
+# relative paths are fine too (relative to the repo root when using make)
+make subimages INPUT_DIR="./my_images" OUTPUT_DIR="./out_subimages"
 ```
 
 To change how far it goes (generate up to $1/2^N$):
