@@ -308,12 +308,14 @@ def main(argv: list[str]) -> int:
 	parser.add_argument(
 		"-i",
 		"--input",
+		"--input-dir",
 		type=Path,
 		default=script_dir / "input.txt",
 		help="Path to input text file (default: input.txt next to the script)",
 	)
 	parser.add_argument(
 		"-o",
+		"--output",
 		"--output-dir",
 		type=Path,
 		default=script_dir / "output",
@@ -363,12 +365,6 @@ def main(argv: list[str]) -> int:
 		action="store_true",
 		help="Clear the output directory before downloading (default: keep existing files).",
 	)
-	# Backwards-compat for older README/scripts.
-	parser.add_argument(
-		"--no-clear",
-		action="store_true",
-		help=argparse.SUPPRESS,
-	)
 
 	args = parser.parse_args(argv)
 
@@ -377,8 +373,7 @@ def main(argv: list[str]) -> int:
 		return 2
 
 	args.output_dir.mkdir(parents=True, exist_ok=True)
-	# Default is now to keep output/ contents (append mode).
-	# --no-clear is accepted for compatibility and effectively means the same.
+	# Default is to keep output/ contents (append mode).
 	if args.clear:
 		try:
 			_clear_output_dir(args.output_dir)

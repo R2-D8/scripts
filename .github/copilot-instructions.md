@@ -18,7 +18,7 @@
 
 - Use `pathlib.Path` and make default paths **relative to the script directory** (examples: `pdf/invert_colors/invert_pdf_colors.py`, `video/video_downloader/video_downloader.py`).
 - CLIs use `argparse` and usually follow an `input/` + `output/` (or `input.txt` + `output/`) layout next to the script.
-- Makefile targets support argument passthrough via `*_ARGS` variables (examples: `VIDEO_DOWNLOADER_ARGS`, `PDF_INVERT_ARGS`, `SUBIMAGES_ARGS`).
+- Makefile targets support argument passthrough via a single `ARGS` variable (example: `make video_downloader ARGS='--clear'`).
 - Batch-friendly behavior exists and should be preserved:
     - `--exit-zero` is used by Makefile targets to avoid failing the whole run on partial errors (see video downloader).
 
@@ -29,15 +29,15 @@
 - Add a Makefile target that:
     - Depends on `$(DEPS_STAMP)` (and `ffmpeg` if needed)
     - Uses `$(PYTHON) $(PYTHONFLAGS)` so it runs with either `.venv` or system python
-    - Supports arg passthrough via `FOO_ARGS ?=` and `make foo FOO_ARGS='...'`
+    - Supports arg passthrough via `ARGS ?=` and `make foo ARGS='...'`
 
 Example Makefile pattern:
 
 ```makefile
-FOO_ARGS ?=
+ARGS ?=
 
 foo: $(DEPS_STAMP)
-	$(PYTHON) $(PYTHONFLAGS) path/to/foo.py $(FOO_ARGS)
+    $(PYTHON) $(PYTHONFLAGS) path/to/foo.py $(ARGS)
 ```
 
 - Also add a `help` line following the existing `@printf` style, and (if it’s user-facing) document the script briefly in `README.md` alongside the other targets.

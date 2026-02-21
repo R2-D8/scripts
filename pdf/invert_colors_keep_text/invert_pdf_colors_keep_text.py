@@ -556,18 +556,25 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         )
     )
     p.add_argument(
+        "-i",
+        "--input",
         "--input-dir",
+        dest="input_dir",
         type=Path,
         default=script_dir / "input",
         help="Folder containing PDFs to invert (default: ./input next to the script)",
     )
     p.add_argument(
+        "-o",
+        "--output",
         "--output-dir",
+        dest="output_dir",
         type=Path,
         default=script_dir / "output",
         help="Folder for inverted PDFs (default: ./output next to the script)",
     )
     p.add_argument(
+        "-r",
         "--recursive",
         action="store_true",
         help="Also process PDFs in subdirectories (preserves folder structure in output)",

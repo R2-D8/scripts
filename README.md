@@ -11,6 +11,70 @@ General layout:
 
 Run everything via `make <target>` (recommended). Individual sections below document inputs/outputs and any extra dependencies.
 
+For passing flags through to the underlying Python script, use a single standard variable:
+
+```bash
+make <target> ARGS="--some-flag --other-flag value"
+```
+
+# Flags summary
+
+## Make variables
+
+- `ARGS="..."`: extra CLI flags appended to the underlying script invocation.
+- `N=<int>`: only for `subimages`; exponent for the default maximum denominator ($2^N$). Default is `N=6` ($2^6 = 64$) when you do not explicitly pass `--max-denom/--denoms/--min-denom`.
+
+## Script flags (pass via `ARGS="..."`)
+
+- `png2bmp` (image/png2bmp/png_to_bmp.py)
+    - No flags. Any args are ignored (script always runs in auto mode).
+
+- `subimages` (image/subimages/create_subimages.py)
+    - `-i, --input, --input-dir PATH`: input image file or directory.
+    - `-o, --output, --output-dir PATH`: output directory.
+    - `-r, --recursive`: recurse into subdirectories.
+    - `--max-denom INT`: max denominator (must be a power of two; default is 64 if not set).
+    - `--min-denom INT`: min power-of-two denominator when using `--max-denom` (default 2).
+    - `--denoms CSV`: explicit denominators like `2,4,8,16` (mutually exclusive with `--max-denom`).
+
+- `video_downloader` (video/video_downloader/video_downloader.py)
+    - `-i, --input, --input-dir PATH`: input text file.
+    - `-o, --output, --output-dir PATH`: output directory.
+    - `-f, --format STR`: yt-dlp format selector.
+    - `--merge-output-format STR`: force a container via yt-dlp `--merge-output-format`.
+    - `--fail-fast`: stop immediately on first download error.
+    - `--verbose`: show full yt-dlp logs.
+    - `--report PATH`: write run report to this file.
+    - `--exit-zero`: always exit 0 even if some downloads fail.
+    - `--clear`: clear output directory before downloading.
+
+- `pdf_invert` (pdf/invert_colors/invert_pdf_colors.py)
+    - `-i, --input, --input-dir PATH`: input folder.
+    - `-o, --output, --output-dir PATH`: output folder.
+    - `-r, --recursive`: include PDFs in subdirectories (preserves structure under output).
+    - `--dpi INT`: render DPI before inversion.
+    - `--password STR`: password for encrypted PDFs.
+    - `--overwrite`: overwrite output PDFs if they already exist.
+    - `--exit-zero`: always exit 0 (batch mode).
+
+- `pdf_invert_keep_text` (pdf/invert_colors_keep_text/invert_pdf_colors_keep_text.py)
+    - `-i, --input, --input-dir PATH`: input folder.
+    - `-o, --output, --output-dir PATH`: output folder.
+    - `-r, --recursive`: include PDFs in subdirectories (preserves structure under output).
+    - `--invert-images`: also invert embedded images (default is to keep images unchanged).
+    - `--password STR`: password for encrypted PDFs.
+    - `--overwrite`: overwrite output PDFs if they already exist.
+    - `--exit-zero`: always exit 0 (batch mode).
+
+- `ppt_to_pdf` (pdf/ppt_to_pdf/ppt_to_pdf.py)
+    - `-i, --input, --input-dir PATH`: input folder.
+    - `-o, --output, --output-dir PATH`: output folder.
+    - `-r, --recursive`: include presentations in subdirectories (preserves structure under output).
+    - `--overwrite`: overwrite output PDFs if they already exist.
+    - `--soffice PATH|NAME`: explicit `soffice` path/name (default: search `PATH`).
+    - `--timeout SECONDS`: per-file timeout (`0` = no timeout).
+    - `--exit-zero`: always exit 0 (batch mode).
+
 # Python environment (repo-wide)
 
 Manual prerequisites on a fresh machine:
@@ -60,22 +124,22 @@ Useful options:
 
 ```bash
 # control quality/size
-make pdf_invert PDF_ARGS="--dpi 150"
+make pdf_invert ARGS="--dpi 150"
 
 # encrypted PDFs
-make pdf_invert PDF_ARGS="--password 'your-password'"
+make pdf_invert ARGS="--password 'your-password'"
 
 # overwrite existing outputs
-make pdf_invert PDF_ARGS="--overwrite"
+make pdf_invert ARGS="--overwrite"
 
 # include PDFs in subdirectories (keeps the same subdir structure under output/)
-make pdf_invert PDF_ARGS="--recursive"
+make pdf_invert ARGS="--recursive"
 
 # custom input/output locations
-make pdf_invert INPUT_DIR="/abs/path/in" OUTPUT_DIR="/abs/path/out"
+make pdf_invert ARGS="-i /abs/path/in -o /abs/path/out"
 
 # or via flags (passed through)
-make pdf_invert PDF_ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
+make pdf_invert ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
 ```
 
 ## Keep-text inverter (best-effort)
@@ -98,27 +162,63 @@ Useful options:
 
 ```bash
 # also invert embedded images
-make pdf_invert_keep_text PDF_KT_ARGS="--invert-images"
+make pdf_invert_keep_text ARGS="--invert-images"
 
 # encrypted PDFs
-make pdf_invert_keep_text PDF_KT_ARGS="--password 'your-password'"
+make pdf_invert_keep_text ARGS="--password 'your-password'"
 
 # overwrite existing outputs
-make pdf_invert_keep_text PDF_KT_ARGS="--overwrite"
+make pdf_invert_keep_text ARGS="--overwrite"
 
 # include PDFs in subdirectories (keeps the same subdir structure under output/)
-make pdf_invert_keep_text PDF_KT_ARGS="--recursive"
+make pdf_invert_keep_text ARGS="--recursive"
 
 # custom input/output locations
-make pdf_invert_keep_text \
-    INPUT_DIR="/abs/path/in" \
-    OUTPUT_DIR="/abs/path/out"
+make pdf_invert_keep_text ARGS="-i /abs/path/in -o /abs/path/out"
 
 # or via flags (passed through)
-make pdf_invert_keep_text PDF_KT_ARGS="--input-dir /abs/path/in --output-dir /abs/path/out"
+make pdf_invert_keep_text ARGS="--input-dir /abs/path/in --output-dir /abs/path/out"
 ```
 
 Limitations (expected): some PDFs use advanced color spaces (patterns / ICCBased / DeviceN) or inline images; those may not invert perfectly.
+
+# PPT/PPTX -> PDF
+
+Convert PowerPoint presentations (`.ppt` / `.pptx`) to PDFs using LibreOffice in headless mode.
+
+Prerequisite: LibreOffice installed and `soffice` available on your `PATH`.
+
+On Debian/Ubuntu:
+
+```bash
+sudo apt install libreoffice
+```
+
+Put presentations into `pdf/ppt_to_pdf/input/` and run:
+
+```bash
+make ppt_to_pdf
+```
+
+Outputs are written to `pdf/ppt_to_pdf/output/` as:
+
+- `<input_stem>.pdf`
+
+Useful options:
+
+```bash
+# include subfolders (preserves structure under output/)
+make ppt_to_pdf ARGS="--recursive"
+
+# overwrite existing PDFs
+make ppt_to_pdf ARGS="--overwrite"
+
+# custom input/output locations
+make ppt_to_pdf ARGS="-i /abs/path/in -o /abs/path/out"
+
+# or pass flags through
+make ppt_to_pdf ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
+```
 
 # PNG <-> BMP
 
@@ -148,10 +248,10 @@ make subimages
 To use custom input/output directories:
 
 ```bash
-make subimages INPUT_DIR="/abs/path/in" OUTPUT_DIR="/abs/path/out"
+make subimages ARGS="-i /abs/path/in -o /abs/path/out"
 
 # relative paths are fine too (relative to the repo root when using make)
-make subimages INPUT_DIR="./my_images" OUTPUT_DIR="./out_subimages"
+make subimages ARGS="-i ./my_images -o ./out_subimages"
 ```
 
 To change how far it goes (generate up to $1/2^N$):
@@ -169,10 +269,10 @@ Customize the scale set:
 
 ```bash
 # generate 1/2..1/256
-make subimages SUBIMAGES_ARGS="--max-denom 256"
+make subimages ARGS="--max-denom 256"
 
 # generate only specific scales
-make subimages SUBIMAGES_ARGS="--denoms 2,8,64"
+make subimages ARGS="--denoms 2,8,64"
 ```
 
 # Video Downloader
@@ -189,7 +289,7 @@ Extra options:
 
 ```bash
 # clear output/ before downloading
-make video_downloader VIDEO_DOWNLOADER_ARGS="--clear"
+make video_downloader ARGS="--clear"
 ```
 
 This target runs in “batch mode” (it won’t fail the whole `make` if a few links fail). See the report file for details.

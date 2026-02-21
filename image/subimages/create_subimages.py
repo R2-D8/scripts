@@ -12,9 +12,9 @@ Default layout:
 
 Usage:
     python3 subimages/create_subimages.py
-    python3 subimages/create_subimages.py subimages/input -o subimages/output
+    python3 subimages/create_subimages.py -i subimages/input -o subimages/output
     python3 subimages/create_subimages.py --input-dir /path/to/input --output-dir /path/to/output
-    python3 subimages/create_subimages.py subimages/input -r --max-denom 256
+    python3 subimages/create_subimages.py -i subimages/input -r --max-denom 256
 
 Notes:
 - Output keeps the same extension as the source.
@@ -204,32 +204,22 @@ def main(argv: Sequence[str]) -> int:
 
     parser = argparse.ArgumentParser(description="Create downscaled copies of PNG/BMP images (1/2, 1/4, ...).")
     parser.add_argument(
-        "input",
-        nargs="?",
-        type=Path,
-        default=default_input,
-        help="Input image file or directory (default: subimages/input)",
-    )
-    parser.add_argument(
+        "-i",
+        "--input",
         "--input-dir",
         dest="input",
         type=Path,
-        default=argparse.SUPPRESS,
-        help="Alias for the positional input path (directory or file)",
+        default=default_input,
+        help="Input image file or directory (default: ./input next to the script)",
     )
     parser.add_argument(
         "-o",
         "--output",
-        type=Path,
-        default=default_output,
-        help="Output directory (default: subimages/output)",
-    )
-    parser.add_argument(
         "--output-dir",
-        dest="output",
         type=Path,
-        default=argparse.SUPPRESS,
-        help="Alias for --output",
+        dest="output",
+        default=default_output,
+        help="Output directory (default: ./output next to the script)",
     )
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into subdirectories")
 
