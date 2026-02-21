@@ -145,40 +145,51 @@ make pdf_invert ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --over
 ## Keep-text inverter (best-effort)
 
 This script tries to keep the PDF structure intact: it prepends a black background to each page and rewrites the existing page content streams to invert color-setting operators (text + vector graphics). That means things like page divider lines and bold/italic text should remain, because the original drawing/text commands are still there.
-
 By default it **keeps images unchanged**. If you want images inverted too, pass `--invert-images` (it uses PDF `/Decode` arrays when possible).
 
 Put PDFs into `pdf/invert_colors_keep_text/input/` and run:
 
 ```bash
-make pdf_invert_keep_text
+make ppt_to_pdf ARGS="--recursive"
 ```
 
-Outputs are written to `pdf/invert_colors_keep_text/output/` as:
+make ppt_to_pdf ARGS="--overwrite"
+
+# control parallelism (optional; by default the script picks a value from CPU count)
+
+make ppt_to_pdf PPT_TO_PDF_JOBS=4
 
 - `<input_name>_inverted.pdf`
 
 Useful options:
 
-```bash
+make ppt_to_pdf ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
+
 # also invert embedded images
+
 make pdf_invert_keep_text ARGS="--invert-images"
 
 # encrypted PDFs
+
 make pdf_invert_keep_text ARGS="--password 'your-password'"
 
 # overwrite existing outputs
+
 make pdf_invert_keep_text ARGS="--overwrite"
 
 # include PDFs in subdirectories (keeps the same subdir structure under output/)
+
 make pdf_invert_keep_text ARGS="--recursive"
 
 # custom input/output locations
+
 make pdf_invert_keep_text ARGS="-i /abs/path/in -o /abs/path/out"
 
 # or via flags (passed through)
+
 make pdf_invert_keep_text ARGS="--input-dir /abs/path/in --output-dir /abs/path/out"
-```
+
+````
 
 Limitations (expected): some PDFs use advanced color spaces (patterns / ICCBased / DeviceN) or inline images; those may not invert perfectly.
 
@@ -192,7 +203,7 @@ On Debian/Ubuntu:
 
 ```bash
 sudo apt install libreoffice
-```
+````
 
 Put presentations into `pdf/ppt_to_pdf/input/` and run:
 

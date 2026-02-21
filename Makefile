@@ -21,6 +21,26 @@ export PATH := $(abspath $(FFMPEG_DIR))/bin:$(abspath $(VENV))/bin:$(PATH)
 # Standard argument passthrough (used by all script targets).
 ARGS ?=
 
+# Optional convenience knobs for specific targets.
+# Default: schedule one job per *physical* CPU core (avoid SMT/hyperthreads).
+# Prefer lscpu; fall back to /proc/cpuinfo; then to logical core count.
+PPT_TO_PDF_JOBS ?= $(shell \
+	if command -v lscpu >/dev/null 2>&1; then \
+		lscpu -p=CORE,SOCKET 2>/dev/null \
+			| grep -v '^#' \
+			| sort -u \
+			| awk 'END { print (NR>0 ? NR : 1) }'; \
+	elif [ -r /proc/cpuinfo ]; then \
+		awk -F': *' '\
+			/physical id/ { p=$$2 }\
+			/core id/ { c=$$2; if (p=="") p=0; a[p":"c]=1 }\
+			END { n=0; for (k in a) n++; if (n>0) print n; else exit 1 }\
+		' /proc/cpuinfo 2>/dev/null \
+		|| (nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1); \
+	else \
+		nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1; \
+	fi)
+
 venv:
 	python3 -m venv $(VENV)
 	$(VENV_PYTHON) -m pip install -U pip setuptools wheel
@@ -88,8 +108,9 @@ help:
 	@printf "  %-24s %s\n" "ppt_to_pdf" "Convert PPT/PPTX to PDFs via LibreOffice (soffice)"
 	@printf "  %-24s %s\n" "" "Input: pdf/ppt_to_pdf/input"
 	@printf "  %-24s %s\n" "" "Args: ARGS='...' (optional)"
+	@printf "  %-24s %s\n" "" "Jobs: PPT_TO_PDF_JOBS=<n> (default: physical cores)"
 	@printf "  %-24s %s\n" "" "Flags: -i/--input/--input-dir  -o/--output/--output-dir"
-	@printf "  %-24s %s\n" "" "       -r/--recursive  --overwrite  --soffice  --timeout  --exit-zero"
+	@printf "  %-24s %s\n" "" "       -r/--recursive  -j/--jobs  --overwrite  --soffice  --timeout  --exit-zero"
 	@printf "  %-24s %s\n" "" "Example: make ppt_to_pdf"
 
 clean_venv:
@@ -124,4 +145,6 @@ pdf_invert_keep_text: $(DEPS_STAMP)
 	$(PYTHON) $(PYTHONFLAGS) pdf/invert_colors_keep_text/invert_pdf_colors_keep_text.py $(ARGS)
 
 ppt_to_pdf: $(DEPS_STAMP)
-	$(PYTHON) $(PYTHONFLAGS) pdf/ppt_to_pdf/ppt_to_pdf.py $(ARGS)
+	$(PYTHON) $(PYTHONFLAGS) pdf/ppt_to_pdf/ppt_to_pdf.py \
+		--jobs $(PPT_TO_PDF_JOBS) \
+		$(ARGS)
