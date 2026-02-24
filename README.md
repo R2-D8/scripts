@@ -33,6 +33,7 @@ make <target> ARGS="--some-flag --other-flag value"
     - `-i, --input, --input-dir PATH`: input image file or directory.
     - `-o, --output, --output-dir PATH`: output directory.
     - `-r, --recursive`: recurse into subdirectories.
+    - `-j, --jobs INT`: parallel jobs (default: physical CPU cores).
     - `--max-denom INT`: max denominator (must be a power of two; default is 64 if not set).
     - `--min-denom INT`: min power-of-two denominator when using `--max-denom` (default 2).
     - `--denoms CSV`: explicit denominators like `2,4,8,16` (mutually exclusive with `--max-denom`).
@@ -55,6 +56,7 @@ make <target> ARGS="--some-flag --other-flag value"
     - `--dpi INT`: render DPI before inversion.
     - `--password STR`: password for encrypted PDFs.
     - `--overwrite`: overwrite output PDFs if they already exist.
+    - `-j, --jobs INT`: parallel jobs (default: physical CPU cores).
     - `--exit-zero`: always exit 0 (batch mode).
 
 - `pdf_invert_keep_text` (pdf/invert_colors_keep_text/invert_pdf_colors_keep_text.py)
@@ -64,12 +66,14 @@ make <target> ARGS="--some-flag --other-flag value"
     - `--invert-images`: also invert embedded images (default is to keep images unchanged).
     - `--password STR`: password for encrypted PDFs.
     - `--overwrite`: overwrite output PDFs if they already exist.
+    - `-j, --jobs INT`: parallel jobs (default: physical CPU cores).
     - `--exit-zero`: always exit 0 (batch mode).
 
 - `ppt_to_pdf` (pdf/ppt_to_pdf/ppt_to_pdf.py)
     - `-i, --input, --input-dir PATH`: input folder.
     - `-o, --output, --output-dir PATH`: output folder.
     - `-r, --recursive`: include presentations in subdirectories (preserves structure under output).
+    - `-j, --jobs INT`: parallel LibreOffice jobs (default: physical CPU cores).
     - `--overwrite`: overwrite output PDFs if they already exist.
     - `--soffice PATH|NAME`: explicit `soffice` path/name (default: search `PATH`).
     - `--timeout SECONDS`: per-file timeout (`0` = no timeout).
@@ -138,6 +142,9 @@ make pdf_invert ARGS="--recursive"
 # custom input/output locations
 make pdf_invert ARGS="-i /abs/path/in -o /abs/path/out"
 
+# control parallelism (optional; default: physical CPU cores)
+make pdf_invert ARGS="-j 4"
+
 # or via flags (passed through)
 make pdf_invert ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
 ```
@@ -150,46 +157,37 @@ By default it **keeps images unchanged**. If you want images inverted too, pass 
 Put PDFs into `pdf/invert_colors_keep_text/input/` and run:
 
 ```bash
-make ppt_to_pdf ARGS="--recursive"
+make pdf_invert_keep_text
 ```
 
-make ppt_to_pdf ARGS="--overwrite"
-
-# control parallelism (optional; by default the script picks a value from CPU count)
-
-make ppt_to_pdf PPT_TO_PDF_JOBS=4
+Outputs are written to `pdf/invert_colors_keep_text/output/` as:
 
 - `<input_name>_inverted.pdf`
 
 Useful options:
 
-make ppt_to_pdf ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
-
+```bash
 # also invert embedded images
-
 make pdf_invert_keep_text ARGS="--invert-images"
 
 # encrypted PDFs
-
 make pdf_invert_keep_text ARGS="--password 'your-password'"
 
 # overwrite existing outputs
-
 make pdf_invert_keep_text ARGS="--overwrite"
 
 # include PDFs in subdirectories (keeps the same subdir structure under output/)
-
 make pdf_invert_keep_text ARGS="--recursive"
 
-# custom input/output locations
+# control parallelism (optional; default: physical CPU cores)
+make pdf_invert_keep_text ARGS="-j 4"
 
+# custom input/output locations
 make pdf_invert_keep_text ARGS="-i /abs/path/in -o /abs/path/out"
 
-# or via flags (passed through)
-
-make pdf_invert_keep_text ARGS="--input-dir /abs/path/in --output-dir /abs/path/out"
-
-````
+# or via long flags
+make pdf_invert_keep_text ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
+```
 
 Limitations (expected): some PDFs use advanced color spaces (patterns / ICCBased / DeviceN) or inline images; those may not invert perfectly.
 
@@ -203,7 +201,7 @@ On Debian/Ubuntu:
 
 ```bash
 sudo apt install libreoffice
-````
+```
 
 Put presentations into `pdf/ppt_to_pdf/input/` and run:
 
@@ -223,6 +221,10 @@ make ppt_to_pdf ARGS="--recursive"
 
 # overwrite existing PDFs
 make ppt_to_pdf ARGS="--overwrite"
+
+# control parallelism (optional; default: physical CPU cores)
+# (Makefile passes this through to --jobs)
+make ppt_to_pdf PPT_TO_PDF_JOBS=4
 
 # custom input/output locations
 make ppt_to_pdf ARGS="-i /abs/path/in -o /abs/path/out"
@@ -260,6 +262,9 @@ To use custom input/output directories:
 
 ```bash
 make subimages ARGS="-i /abs/path/in -o /abs/path/out"
+
+# control parallelism (optional; default: physical CPU cores)
+make subimages ARGS="-j 4"
 
 # relative paths are fine too (relative to the repo root when using make)
 make subimages ARGS="-i ./my_images -o ./out_subimages"

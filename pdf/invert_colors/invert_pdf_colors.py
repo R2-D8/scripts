@@ -16,10 +16,95 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
+import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+
+
+def _physical_cpu_cores() -> int | None:
+    """Best-effort physical core count.
+
+    On Linux, prefer `lscpu` if available; otherwise parse /proc/cpuinfo.
+    Returns None if it cannot be determined.
+    """
+
+    if not sys.platform.startswith("linux"):
+        return None
+
+    # 1) lscpu: count unique (CORE, SOCKET)
+    try:
+        proc = subprocess.run(
+            ["lscpu", "-p=CORE,SOCKET"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            pairs: set[tuple[str, str]] = set()
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2 and parts[0] and parts[1]:
+                    pairs.add((parts[0], parts[1]))
+            if pairs:
+                return len(pairs)
+    except Exception:
+        pass
+
+    # 2) /proc/cpuinfo: count unique (physical id, core id)
+    try:
+        cpuinfo = Path("/proc/cpuinfo")
+        if not cpuinfo.exists():
+            return None
+        physical_id: str | None = None
+        core_id: str | None = None
+        pairs2: set[tuple[str, str]] = set()
+        for line in cpuinfo.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if not line.strip():
+                if physical_id is not None and core_id is not None:
+                    pairs2.add((physical_id, core_id))
+                physical_id = None
+                core_id = None
+                continue
+            if line.lower().startswith("physical id"):
+                physical_id = line.split(":", 1)[-1].strip()
+            elif line.lower().startswith("core id"):
+                core_id = line.split(":", 1)[-1].strip()
+        if physical_id is not None and core_id is not None:
+            pairs2.add((physical_id, core_id))
+        if pairs2:
+            return len(pairs2)
+    except Exception:
+        return None
+
+    return None
+
+
+def _default_jobs() -> int:
+    n = _physical_cpu_cores()
+    if n is None:
+        try:
+            n = int(os.cpu_count() or 1)
+        except Exception:
+            n = 1
+    return max(1, int(n))
+
+
+def _positive_int(value: str) -> int:
+    try:
+        n = int(value)
+    except Exception as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if n < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return n
 
 
 def _lazy_import_fitz():
@@ -229,6 +314,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Overwrite output PDFs if they already exist",
     )
     p.add_argument(
+        "-j",
+        "--jobs",
+        type=_positive_int,
+        default=_default_jobs(),
+        help="Parallel jobs (default: %(default)s)",
+    )
+    p.add_argument(
         "--exit-zero",
         action="store_true",
         help="Always exit 0 (useful for batch runs)",
@@ -257,32 +349,69 @@ def main(argv: list[str]) -> int:
     succeeded = 0
     failed = 0
 
-    for input_pdf in inputs:
-        processed += 1
-        output_pdf = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_pdf=input_pdf)
+    jobs = int(args.jobs)
+    if jobs < 1:
+        jobs = 1
 
-        try:
-            invert_pdf(
-                input_pdf=input_pdf,
-                output_pdf=output_pdf,
-                dpi=int(args.dpi),
-                password=args.password,
-                overwrite=bool(args.overwrite),
-            )
-            succeeded += 1
+    def _process_one(input_pdf: Path) -> tuple[Path, Path]:
+        output_pdf = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_pdf=input_pdf)
+        invert_pdf(
+            input_pdf=input_pdf,
+            output_pdf=output_pdf,
+            dpi=int(args.dpi),
+            password=args.password,
+            overwrite=bool(args.overwrite),
+        )
+        return input_pdf, output_pdf
+
+    processed = len(inputs)
+
+    if jobs == 1 or len(inputs) == 1:
+        for input_pdf in inputs:
             try:
-                in_rel = input_pdf.relative_to(input_dir)
-                out_rel = output_pdf.relative_to(output_dir)
-                print(f"OK  {in_rel} -> {out_rel}")
-            except Exception:
-                print(f"OK  {input_pdf.name} -> {output_pdf.name}")
-        except Exception as exc:
-            failed += 1
-            try:
-                in_rel = input_pdf.relative_to(input_dir)
-                print(f"ERR {in_rel}: {exc}", file=sys.stderr)
-            except Exception:
-                print(f"ERR {input_pdf.name}: {exc}", file=sys.stderr)
+                _in, _out = _process_one(input_pdf)
+                succeeded += 1
+                try:
+                    in_rel = _in.relative_to(input_dir)
+                    out_rel = _out.relative_to(output_dir)
+                    print(f"OK  {in_rel} -> {out_rel}")
+                except Exception:
+                    print(f"OK  {_in.name} -> {_out.name}")
+            except Exception as exc:
+                failed += 1
+                try:
+                    in_rel = input_pdf.relative_to(input_dir)
+                    print(f"ERR {in_rel}: {exc}", file=sys.stderr)
+                except Exception:
+                    print(f"ERR {input_pdf.name}: {exc}", file=sys.stderr)
+    else:
+        max_workers = min(jobs, len(inputs))
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            future_to_in: dict[object, Path] = {}
+            for input_pdf in inputs:
+                fut = ex.submit(_process_one, input_pdf)
+                future_to_in[fut] = input_pdf
+
+            for fut in as_completed(future_to_in):
+                input_pdf = future_to_in[fut]
+                try:
+                    _in, _out = fut.result()
+                except Exception as exc:
+                    failed += 1
+                    try:
+                        in_rel = input_pdf.relative_to(input_dir)
+                        print(f"ERR {in_rel}: {exc}", file=sys.stderr)
+                    except Exception:
+                        print(f"ERR {input_pdf.name}: {exc}", file=sys.stderr)
+                    continue
+
+                succeeded += 1
+                try:
+                    in_rel = _in.relative_to(input_dir)
+                    out_rel = _out.relative_to(output_dir)
+                    print(f"OK  {in_rel} -> {out_rel}")
+                except Exception:
+                    print(f"OK  {_in.name} -> {_out.name}")
 
     result = RunResult(processed=processed, succeeded=succeeded, failed=failed)
     print(f"Done. processed={result.processed} ok={result.succeeded} failed={result.failed}")

@@ -18,6 +18,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import tempfile
 import urllib.parse
@@ -25,9 +26,68 @@ import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Iterable, TypeVar
+
+
+def _physical_cpu_cores() -> int | None:
+    """Best-effort physical core count.
+
+    On Linux, prefer `lscpu` if available; otherwise parse /proc/cpuinfo.
+    Returns None if it cannot be determined.
+    """
+
+    if not sys.platform.startswith("linux"):
+        return None
+
+    try:
+        proc = subprocess.run(
+            ["lscpu", "-p=CORE,SOCKET"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            pairs: set[tuple[str, str]] = set()
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2 and parts[0] and parts[1]:
+                    pairs.add((parts[0], parts[1]))
+            if pairs:
+                return len(pairs)
+    except Exception:
+        pass
+
+    try:
+        cpuinfo = Path("/proc/cpuinfo")
+        if not cpuinfo.exists():
+            return None
+        physical_id: str | None = None
+        core_id: str | None = None
+        pairs2: set[tuple[str, str]] = set()
+        for line in cpuinfo.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if not line.strip():
+                if physical_id is not None and core_id is not None:
+                    pairs2.add((physical_id, core_id))
+                physical_id = None
+                core_id = None
+                continue
+            if line.lower().startswith("physical id"):
+                physical_id = line.split(":", 1)[-1].strip()
+            elif line.lower().startswith("core id"):
+                core_id = line.split(":", 1)[-1].strip()
+        if physical_id is not None and core_id is not None:
+            pairs2.add((physical_id, core_id))
+        if pairs2:
+            return len(pairs2)
+    except Exception:
+        return None
+
+    return None
 
 
 @dataclass(frozen=True)
@@ -87,14 +147,14 @@ def _planned_output_pdf(*, output_dir: Path, input_dir: Path, input_ppt: Path) -
 
 
 def _default_jobs() -> int:
-    """Choose a conservative default parallelism based on CPU count."""
-    try:
-        n = int(cpu_count())
-    except Exception:
-        return 1
-    if n <= 2:
-        return 1
-    return max(1, min(4, n - 1))
+    """Default parallelism: one job per physical core (best-effort)."""
+    n = _physical_cpu_cores()
+    if n is None:
+        try:
+            n = int(os.cpu_count() or 1)
+        except Exception:
+            n = 1
+    return max(1, int(n))
 
 
 def _user_installation_arg(profile_dir: Path) -> str:
@@ -273,7 +333,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--jobs",
         type=int,
         default=_default_jobs(),
-        help="Parallel LibreOffice jobs (default: based on CPU count)",
+        help="Parallel LibreOffice jobs (default: %(default)s)",
     )
     p.add_argument(
         "--overwrite",

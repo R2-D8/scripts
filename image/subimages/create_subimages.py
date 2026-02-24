@@ -24,8 +24,12 @@ Notes:
 """
 
 import argparse
+import os
 import shutil
+import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, List, Sequence
 
@@ -40,6 +44,86 @@ except ImportError:
 
 
 SUPPORTED_EXTS = {".png", ".bmp"}
+
+
+def physical_cpu_cores() -> int | None:
+    """Best-effort physical core count.
+
+    On Linux, prefer `lscpu` if available; otherwise parse /proc/cpuinfo.
+    Returns None if it cannot be determined.
+    """
+
+    if not sys.platform.startswith("linux"):
+        return None
+
+    try:
+        proc = subprocess.run(
+            ["lscpu", "-p=CORE,SOCKET"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            pairs: set[tuple[str, str]] = set()
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2 and parts[0] and parts[1]:
+                    pairs.add((parts[0], parts[1]))
+            if pairs:
+                return len(pairs)
+    except Exception:
+        pass
+
+    try:
+        cpuinfo = Path("/proc/cpuinfo")
+        if not cpuinfo.exists():
+            return None
+        physical_id: str | None = None
+        core_id: str | None = None
+        pairs2: set[tuple[str, str]] = set()
+        for line in cpuinfo.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if not line.strip():
+                if physical_id is not None and core_id is not None:
+                    pairs2.add((physical_id, core_id))
+                physical_id = None
+                core_id = None
+                continue
+            if line.lower().startswith("physical id"):
+                physical_id = line.split(":", 1)[-1].strip()
+            elif line.lower().startswith("core id"):
+                core_id = line.split(":", 1)[-1].strip()
+        if physical_id is not None and core_id is not None:
+            pairs2.add((physical_id, core_id))
+        if pairs2:
+            return len(pairs2)
+    except Exception:
+        return None
+
+    return None
+
+
+def default_jobs() -> int:
+    n = physical_cpu_cores()
+    if n is None:
+        try:
+            n = int(os.cpu_count() or 1)
+        except Exception:
+            n = 1
+    return max(1, int(n))
+
+
+def positive_int(value: str) -> int:
+    try:
+        n = int(value)
+    except Exception as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if n < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return n
 
 
 def is_supported_image(path: Path) -> bool:
@@ -244,6 +328,14 @@ def main(argv: Sequence[str]) -> int:
         help="Min power-of-two denominator when using --max-denom (default: 2)",
     )
 
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=positive_int,
+        default=default_jobs(),
+        help="Parallel jobs (default: %(default)s)",
+    )
+
     args = parser.parse_args(list(argv))
 
     input_path: Path = args.input
@@ -274,18 +366,45 @@ def main(argv: Sequence[str]) -> int:
         print("No .png or .bmp files found.")
         return 0
 
-    ok = True
-    for src in images:
+    jobs = int(args.jobs)
+    if jobs < 1:
+        jobs = 1
+
+    print_lock = threading.Lock()
+
+    def _process_one(src: Path) -> bool:
+        local_ok = True
         for denom in denoms:
             dst = output_path_for(src, input_path, output_root, denom)
             try:
                 target_size = save_resized(src, dst, denom)
-                print(f"Wrote: {dst}")
+                with print_lock:
+                    print(f"Wrote: {dst}")
                 if target_size == (1, 1):
                     break
             except Exception as e:
+                local_ok = False
+                with print_lock:
+                    print(f"Error processing {src} at 1/{denom}: {e}", file=sys.stderr)
+        return local_ok
+
+    ok = True
+    if jobs == 1 or len(images) == 1:
+        for src in images:
+            if not _process_one(src):
                 ok = False
-                print(f"Error processing {src} at 1/{denom}: {e}", file=sys.stderr)
+    else:
+        max_workers = min(jobs, len(images))
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = [ex.submit(_process_one, src) for src in images]
+            for fut in as_completed(futures):
+                try:
+                    if not bool(fut.result()):
+                        ok = False
+                except Exception as e:
+                    ok = False
+                    with print_lock:
+                        print(f"Error: {e}", file=sys.stderr)
 
     return 0 if ok else 1
 
