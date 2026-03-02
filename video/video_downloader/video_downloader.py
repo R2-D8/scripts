@@ -317,6 +317,7 @@ def main(argv: list[str]) -> int:
 		"-o",
 		"--output",
 		"--output-dir",
+		dest="output_dir",
 		type=Path,
 		default=script_dir / "output",
 		help="Output directory (default: output/ next to the script)",

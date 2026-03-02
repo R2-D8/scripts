@@ -33,7 +33,7 @@ make <target> ARGS="--some-flag --other-flag value"
     - `-i, --input, --input-dir PATH`: input image file or directory.
     - `-o, --output, --output-dir PATH`: output directory.
     - `-r, --recursive`: recurse into subdirectories.
-    - `-j, --jobs INT`: parallel jobs (default: physical CPU cores).
+    - `--exit-zero`: always exit 0.
     - `--max-denom INT`: max denominator (must be a power of two; default is 64 if not set).
     - `--min-denom INT`: min power-of-two denominator when using `--max-denom` (default 2).
     - `--denoms CSV`: explicit denominators like `2,4,8,16` (mutually exclusive with `--max-denom`).
@@ -49,6 +49,14 @@ make <target> ARGS="--some-flag --other-flag value"
     - `--exit-zero`: always exit 0 even if some downloads fail.
     - `--clear`: clear output directory before downloading.
 
+- `transcribe_media` (video/transcribe_media/transcribe_media.py)
+    - `-i, --input-dir PATH`: input folder containing media files.
+    - `-o, --output-dir PATH`: output folder for per-file `.txt` transcripts.
+    - `-r, --recursive`: include subdirectories (preserves structure under output).
+    - `-l, --language {it,en}`: language model to use (default: `it`).
+    - `--start TS`: start timestamp for the segment to transcribe (e.g. `12.5`, `01:23`, `00:01:23.500`).
+    - `--end TS`: end timestamp for the segment to transcribe.
+
 - `pdf_invert` (pdf/invert_colors/invert_pdf_colors.py)
     - `-i, --input, --input-dir PATH`: input folder.
     - `-o, --output, --output-dir PATH`: output folder.
@@ -56,7 +64,6 @@ make <target> ARGS="--some-flag --other-flag value"
     - `--dpi INT`: render DPI before inversion.
     - `--password STR`: password for encrypted PDFs.
     - `--overwrite`: overwrite output PDFs if they already exist.
-    - `-j, --jobs INT`: parallel jobs (default: physical CPU cores).
     - `--exit-zero`: always exit 0 (batch mode).
 
 - `pdf_invert_keep_text` (pdf/invert_colors_keep_text/invert_pdf_colors_keep_text.py)
@@ -142,8 +149,6 @@ make pdf_invert ARGS="--recursive"
 # custom input/output locations
 make pdf_invert ARGS="-i /abs/path/in -o /abs/path/out"
 
-# control parallelism (optional; default: physical CPU cores)
-make pdf_invert ARGS="-j 4"
 
 # or via flags (passed through)
 make pdf_invert ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
@@ -358,3 +363,61 @@ If you want to run this on a Windows host with **no Python/yt-dlp/ffmpeg install
 - Usage: put an `input.txt` next to the `.exe` (same format as described above); it will create `output/` and `output.txt` next to the `.exe`.
 
 Note: PyInstaller onefile executables unpack embedded binaries to a temporary folder at runtime, but everything is shipped inside the `.exe`.
+
+# Media Transcription
+
+Transcribe a directory of media files (mix of `.mp3`, `.mp4`, `.avi`) into per-file `.txt` transcripts.
+
+Put media into `video/transcribe_media/input/` and run:
+
+```bash
+make transcribe_media
+```
+
+Outputs are written to `video/transcribe_media/output/` as:
+
+- `<input_stem>.txt`
+
+If you include subdirectories and pass `--recursive`, the output directory mirrors the input folder structure.
+
+Useful options:
+
+```bash
+# include subfolders (preserves structure under output/)
+make transcribe_media ARGS="--recursive"
+
+# switch to English model
+make transcribe_media ARGS="--language en"
+
+# transcribe only a segment
+make transcribe_media ARGS="--start 00:01:00 --end 00:02:30"
+
+# custom input/output locations
+make transcribe_media ARGS="-i /abs/path/in -o /abs/path/out"
+```
+
+Notes:
+
+- This uses repo-local `ffmpeg` (installed by `make bootstrap`).
+- On first run it downloads a Vosk language model into `video/transcribe_media/model/` (Italian by default).
+
+## input.txt (optional)
+
+If an `input.txt` file is present in the input folder (and, when using `--recursive`, in any subfolder), it can contain:
+
+- URLs (lines starting with `http://` or `https://`) to download via the existing downloader, and then transcribe.
+- File references (the **filename without extension**, optionally as a relative path like `subdir/name`) to apply per-file start/end timestamps to existing local media.
+
+Per-entry timestamps:
+
+- The line **immediately after** a URL or file reference can contain `START END` timestamps (examples: `01:23 02:10`, `00:01:23.500 00:02:00`, `12.5 20`).
+- You can use `-` to mean “unset” (examples: `00:30 -`, `- 02:00`) and you can also provide just one value (treated as `START`).
+- If a file reference matches multiple files (e.g. both `name.mp3` and `name.mp4` exist), the same segment is applied to all matches.
+- If a file reference does not match anything, it is ignored (not all lines are necessarily file references).
+- Not all media files need to be listed in `input.txt`: any discovered `.mp3/.mp4/.avi` will still be transcribed; `input.txt` only adds downloads and/or overrides timestamps.
+- If there is no per-entry segment, `--start/--end` are used as defaults; if those are also unset, the full file is transcribed.
+
+Downloader output:
+
+- Downloads are written under `<output-dir>/downloads/` (default: `video/transcribe_media/output/downloads/`).
+- With `--recursive`, each subfolder `input.txt` downloads into `<output-dir>/downloads/<that_subfolder>/`.

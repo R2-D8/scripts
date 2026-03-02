@@ -6,3 +6,4 @@
 Pillow>=9.0
 PyMuPDF>=1.23
 yt-dlp>=2024.1.0
+vosk>=0.3.45

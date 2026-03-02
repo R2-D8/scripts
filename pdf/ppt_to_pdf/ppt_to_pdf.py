@@ -467,10 +467,16 @@ def main(argv: list[str]) -> int:
         tasks.append((out_dir, left))
         tasks.append((out_dir, right))
 
-    print(
-        f"Converting {total} file(s) in {len(tasks)} task(s) with jobs={jobs} "
-        f"(batching={'off' if bool(args.no_batch) else 'on'})..."
-    )
+    if jobs > 1:
+        print(
+            f"Converting {total} file(s) in {len(tasks)} task(s) with processes={jobs} "
+            f"(batching={'off' if bool(args.no_batch) else 'on'})..."
+        )
+    else:
+        print(
+            f"Converting {total} file(s) in {len(tasks)} task(s) with jobs={jobs} "
+            f"(batching={'off' if bool(args.no_batch) else 'on'})..."
+        )
 
     def _handle_results(results: list[tuple[str, str, bool, str | None]]) -> None:
         nonlocal done, succeeded, failed
@@ -510,17 +516,32 @@ def main(argv: list[str]) -> int:
                 )
                 future_to_task[fut] = (out_dir, len(items))
 
-            for fut in as_completed(future_to_task):
-                out_dir, n_items = future_to_task[fut]
+            try:
+                for fut in as_completed(future_to_task):
+                    out_dir, n_items = future_to_task[fut]
+                    try:
+                        results = fut.result()
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception as exc:
+                        # Should be rare because worker catches most errors.
+                        failed += n_items
+                        done += n_items
+                        print(f"FAIL: task for {out_dir} crashed: {exc}", file=sys.stderr)
+                        continue
+                    _handle_results(results)
+            except KeyboardInterrupt:
+                for f in future_to_task:
+                    try:
+                        f.cancel()
+                    except Exception:
+                        pass
                 try:
-                    results = fut.result()
-                except Exception as exc:
-                    # Should be rare because worker catches most errors.
-                    failed += n_items
-                    done += n_items
-                    print(f"FAIL: task for {out_dir} crashed: {exc}", file=sys.stderr)
-                    continue
-                _handle_results(results)
+                    ex.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    pass
+                print("Interrupted.", file=sys.stderr)
+                return 0 if bool(args.exit_zero) else 130
 
     result = RunResult(processed=processed, succeeded=succeeded, failed=failed, skipped=skipped)
     print(

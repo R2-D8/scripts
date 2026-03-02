@@ -35,6 +35,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -562,6 +563,7 @@ def invert_pdf_keep_text(
     password: str | None,
     overwrite: bool,
     invert_images: bool,
+    stop_event: threading.Event | None = None,
 ) -> None:
     fitz = _lazy_import_fitz()
 
@@ -591,6 +593,9 @@ def invert_pdf_keep_text(
             pass
 
         for page_index in range(doc.page_count):
+            if stop_event is not None and stop_event.is_set():
+                raise KeyboardInterrupt()
+
             page = doc.load_page(page_index)
             rect = page.rect
             bg = _background_stream_bytes(width=rect.width, height=rect.height)
@@ -718,6 +723,11 @@ def main(argv: list[str]) -> int:
     if jobs < 1:
         jobs = 1
 
+    stop_event = threading.Event()
+
+    if jobs > 1 and len(inputs) > 1:
+        print(f"Processing {len(inputs)} PDF(s) with threads={min(jobs, len(inputs))}...")
+
     def _process_one(input_pdf: Path) -> tuple[Path, Path]:
         output_pdf = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_pdf=input_pdf)
         invert_pdf_keep_text(
@@ -726,6 +736,7 @@ def main(argv: list[str]) -> int:
             password=args.password,
             overwrite=bool(args.overwrite),
             invert_images=bool(args.invert_images),
+            stop_event=stop_event,
         )
         return input_pdf, output_pdf
 
@@ -757,26 +768,38 @@ def main(argv: list[str]) -> int:
                 fut = ex.submit(_process_one, input_pdf)
                 future_to_in[fut] = input_pdf
 
-            for fut in as_completed(future_to_in):
-                input_pdf = future_to_in[fut]
-                try:
-                    _in, _out = fut.result()
-                except Exception as exc:
-                    failed += 1
+            try:
+                for fut in as_completed(future_to_in):
+                    input_pdf = future_to_in[fut]
                     try:
-                        in_rel = input_pdf.relative_to(input_dir)
-                        print(f"ERR {in_rel}: {exc}", file=sys.stderr)
-                    except Exception:
-                        print(f"ERR {input_pdf.name}: {exc}", file=sys.stderr)
-                    continue
+                        _in, _out = fut.result()
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception as exc:
+                        failed += 1
+                        try:
+                            in_rel = input_pdf.relative_to(input_dir)
+                            print(f"ERR {in_rel}: {exc}", file=sys.stderr)
+                        except Exception:
+                            print(f"ERR {input_pdf.name}: {exc}", file=sys.stderr)
+                        continue
 
-                succeeded += 1
-                try:
-                    in_rel = _in.relative_to(input_dir)
-                    out_rel = _out.relative_to(output_dir)
-                    print(f"OK  {in_rel} -> {out_rel}")
-                except Exception:
-                    print(f"OK  {_in.name} -> {_out.name}")
+                    succeeded += 1
+                    try:
+                        in_rel = _in.relative_to(input_dir)
+                        out_rel = _out.relative_to(output_dir)
+                        print(f"OK  {in_rel} -> {out_rel}")
+                    except Exception:
+                        print(f"OK  {_in.name} -> {_out.name}")
+            except KeyboardInterrupt:
+                stop_event.set()
+                for f in future_to_in:
+                    try:
+                        f.cancel()
+                    except Exception:
+                        pass
+                print("Interrupted.", file=sys.stderr)
+                return 0 if bool(args.exit_zero) else 130
 
     result = RunResult(processed=processed, succeeded=succeeded, failed=failed)
     print(

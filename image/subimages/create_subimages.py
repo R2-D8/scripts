@@ -370,11 +370,18 @@ def main(argv: Sequence[str]) -> int:
     if jobs < 1:
         jobs = 1
 
+    stop_event = threading.Event()
+
+    if jobs > 1 and len(images) > 1:
+        print(f"Processing {len(images)} image(s) with threads={min(jobs, len(images))}...")
+
     print_lock = threading.Lock()
 
     def _process_one(src: Path) -> bool:
         local_ok = True
         for denom in denoms:
+            if stop_event.is_set():
+                raise KeyboardInterrupt()
             dst = output_path_for(src, input_path, output_root, denom)
             try:
                 target_size = save_resized(src, dst, denom)
@@ -397,14 +404,27 @@ def main(argv: Sequence[str]) -> int:
         max_workers = min(jobs, len(images))
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = [ex.submit(_process_one, src) for src in images]
-            for fut in as_completed(futures):
-                try:
-                    if not bool(fut.result()):
+            try:
+                for fut in as_completed(futures):
+                    try:
+                        if not bool(fut.result()):
+                            ok = False
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception as e:
                         ok = False
-                except Exception as e:
-                    ok = False
-                    with print_lock:
-                        print(f"Error: {e}", file=sys.stderr)
+                        with print_lock:
+                            print(f"Error: {e}", file=sys.stderr)
+            except KeyboardInterrupt:
+                stop_event.set()
+                for f in futures:
+                    try:
+                        f.cancel()
+                    except Exception:
+                        pass
+                with print_lock:
+                    print("Interrupted.", file=sys.stderr)
+                return 130
 
     return 0 if ok else 1
 
