@@ -57,13 +57,13 @@ make <target> ARGS="--some-flag --other-flag value"
     - `--start TS`: start timestamp for the segment to transcribe (e.g. `12.5`, `01:23`, `00:01:23.500`).
     - `--end TS`: end timestamp for the segment to transcribe.
 
-- `pdf_invert` (pdf/invert_colors/invert_pdf_colors.py)
+- `invert_colors` (pdf/invert_colors/invert_colors.py)
     - `-i, --input, --input-dir PATH`: input folder.
     - `-o, --output, --output-dir PATH`: output folder.
-    - `-r, --recursive`: include PDFs in subdirectories (preserves structure under output).
-    - `--dpi INT`: render DPI before inversion.
+    - `-r, --recursive`: include PDFs/images in subdirectories (preserves structure under output).
+    - `--dpi INT`: render DPI before inversion for PDFs (ignored for images).
     - `--password STR`: password for encrypted PDFs.
-    - `--overwrite`: overwrite output PDFs if they already exist.
+    - `--overwrite`: overwrite outputs if they already exist.
     - `--exit-zero`: always exit 0 (batch mode).
 
 - `pdf_invert_keep_text` (pdf/invert_colors_keep_text/invert_pdf_colors_keep_text.py)
@@ -108,50 +108,51 @@ Notes:
 - You still need an internet connection the first time you bootstrap (downloads Python packages + ffmpeg).
 - The downloaded ffmpeg build is a static GPLv3 build (see `tools/ffmpeg/SOURCE.txt`).
 
-# PDF (Invert Colors)
+# PDF/Image (Invert Colors)
 
-There are two PDF color-inversion scripts:
+There are two color-inversion scripts:
 
-1. **Robust (rasterize pages)**: works on almost any PDF, but the result is _flattened_ (no selectable text).
+1. **Robust (PDF+image)**: handles both PDFs and common image formats. PDFs are rasterized and become _flattened_ (no selectable text).
 2. **Keep text selectable (best-effort)**: tries to preserve text as text (select/copy/search), but is less reliable and may not preserve vector graphics.
 
 Install dependencies via the repo venv (recommended): `make deps`
 
 ## Robust inverter (flattened)
 
-This script rasterizes each page to an image, inverts pixels, then rebuilds a new PDF. This works for essentially any PDF, but the output will be a flattened PDF (no selectable text / vector shapes), and file size depends on the chosen DPI.
+This script inverts both PDFs and common image files. PDFs are rasterized page-by-page and rebuilt as flattened PDFs; images are inverted directly with Pillow.
 
-Put PDFs into `pdf/invert_colors/input/` and run:
+Put PDFs/images into `pdf/invert_colors/input/` and run:
 
 ```bash
-make pdf_invert
+make invert_colors
 ```
 
 Outputs are written to `pdf/invert_colors/output/` as:
 
 - `<input_name>_inverted.pdf`
+- `<input_name>_inverted<ext>` for images
 
 Useful options:
 
 ```bash
 # control quality/size
-make pdf_invert ARGS="--dpi 150"
+make invert_colors ARGS="--dpi 150"
 
 # encrypted PDFs
-make pdf_invert ARGS="--password 'your-password'"
+make invert_colors ARGS="--password 'your-password'"
 
 # overwrite existing outputs
-make pdf_invert ARGS="--overwrite"
+make invert_colors ARGS="--overwrite"
 
-# include PDFs in subdirectories (keeps the same subdir structure under output/)
-make pdf_invert ARGS="--recursive"
+# include files in subdirectories (keeps the same subdir structure under output/)
+make invert_colors ARGS="--recursive"
 
 # custom input/output locations
-make pdf_invert ARGS="-i /abs/path/in -o /abs/path/out"
+make invert_colors ARGS="-i /abs/path/in -o /abs/path/out"
 
 
 # or via flags (passed through)
-make pdf_invert ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
+make invert_colors ARGS="--input-dir /abs/path/in --output-dir /abs/path/out --overwrite"
 ```
 
 ## Keep-text inverter (best-effort)

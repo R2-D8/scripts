@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Invert colors for PDFs.
+"""Invert colors for PDFs and image files.
 
-Robust approach: rasterize each page -> invert pixels -> rebuild a new PDF.
-This works for essentially any PDF (vector, scanned, mixed, weird color spaces),
-at the cost of losing selectable text and potentially increasing file size.
+PDFs use a robust approach: rasterize each page -> invert pixels -> rebuild a new
+PDF. This works for essentially any PDF (vector, scanned, mixed, weird color
+spaces), at the cost of losing selectable text and potentially increasing file
+size.
+
+Images are inverted with Pillow while preserving alpha channels.
 
 Default folders are relative to this script:
-- input/:  place PDFs here
-- output/: inverted PDFs written here
+- input/:  place PDFs/images here
+- output/: inverted files written here
 
-Output name: <input_name>_inverted.pdf
+Output names:
+- PDFs:   <input_name>_inverted.pdf
+- Images: <input_name>_inverted<ext>
 """
 
 from __future__ import annotations
@@ -22,6 +27,19 @@ from pathlib import Path
 from typing import Iterable
 
 
+PDF_SUFFIXES = {".pdf"}
+IMAGE_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
+SUPPORTED_SUFFIXES = PDF_SUFFIXES | IMAGE_SUFFIXES
+
+
 def _lazy_import_fitz():
     try:
         import fitz  # PyMuPDF
@@ -31,9 +49,24 @@ def _lazy_import_fitz():
         raise RuntimeError(
             "Missing dependency: PyMuPDF (fitz). "
             "Install via one of: "
-            "(1) make pdf_invert (auto-creates a venv and installs deps), "
+            "(1) make invert_colors (auto-creates a venv and installs deps), "
             "(2) pip install pymupdf (inside a venv), "
             "(3) distro package e.g. sudo apt install python3-pymupdf"
+        ) from exc
+
+
+def _lazy_import_pillow():
+    try:
+        from PIL import Image, ImageOps
+
+        return Image, ImageOps
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(
+            "Missing dependency: Pillow. "
+            "Install via one of: "
+            "(1) make invert_colors (auto-creates a venv and installs deps), "
+            "(2) pip install pillow (inside a venv), "
+            "(3) distro package e.g. sudo apt install python3-pil"
         ) from exc
 
 
@@ -44,29 +77,28 @@ class RunResult:
     failed: int
 
 
-def _iter_input_pdfs(input_dir: Path) -> Iterable[Path]:
-    yield from _iter_input_pdfs_recursive(input_dir=input_dir, recursive=False)
-
-
-def _iter_input_pdfs_recursive(*, input_dir: Path, recursive: bool) -> Iterable[Path]:
+def _iter_supported_inputs(*, input_dir: Path, recursive: bool) -> Iterable[Path]:
     if not input_dir.exists():
         return
 
     it = input_dir.rglob("*") if recursive else input_dir.iterdir()
     for path in sorted(it):
-        if path.is_file() and path.suffix.lower() == ".pdf":
+        if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES:
             yield path
 
 
-def _build_output_path(*, output_dir: Path, input_dir: Path, input_pdf: Path) -> Path:
-    rel = input_pdf.relative_to(input_dir)
-    return output_dir / rel.parent / f"{rel.stem}_inverted.pdf"
+def _build_output_path(*, output_dir: Path, input_dir: Path, input_path: Path) -> Path:
+    rel = input_path.relative_to(input_dir)
+    suffix = input_path.suffix.lower()
+    if suffix in PDF_SUFFIXES:
+        return output_dir / rel.parent / f"{rel.stem}_inverted.pdf"
+    return output_dir / rel.parent / f"{rel.stem}_inverted{suffix}"
 
 
 def _clear_planned_outputs(*, output_dir: Path, input_dir: Path, inputs: Iterable[Path]) -> None:
     """Remove existing output files this run would generate (best-effort).
 
-    IMPORTANT: Do not delete arbitrary PDFs under output_dir.
+    IMPORTANT: Do not delete arbitrary files under output_dir.
     This prevents accidental data loss when output_dir is a real folder that
     already contains user documents (and especially when output_dir == input_dir).
     """
@@ -74,8 +106,8 @@ def _clear_planned_outputs(*, output_dir: Path, input_dir: Path, inputs: Iterabl
     if output_dir.exists() and not output_dir.is_dir():
         raise NotADirectoryError(f"Output dir is not a directory: {output_dir}")
 
-    for input_pdf in inputs:
-        out = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_pdf=input_pdf)
+    for input_path in inputs:
+        out = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_path=input_path)
         try:
             if out.exists() and out.is_file():
                 out.unlink()
@@ -181,11 +213,58 @@ def invert_pdf(
         doc.close()
 
 
+def _invert_pil_image(image):
+    Image, ImageOps = _lazy_import_pillow()
+
+    # Preserve alpha channel while inverting only visible color channels.
+    if image.mode == "RGBA":
+        r, g, b, a = image.split()
+        rgb = Image.merge("RGB", (r, g, b))
+        inv_rgb = ImageOps.invert(rgb)
+        ir, ig, ib = inv_rgb.split()
+        return Image.merge("RGBA", (ir, ig, ib, a))
+
+    if image.mode == "LA":
+        l, a = image.split()
+        inv_l = ImageOps.invert(l)
+        return Image.merge("LA", (inv_l, a))
+
+    if image.mode == "P":
+        if "transparency" in image.info:
+            return _invert_pil_image(image.convert("RGBA"))
+        return _invert_pil_image(image.convert("RGB"))
+
+    if image.mode == "1":
+        image = image.convert("L")
+
+    if image.mode not in ("L", "RGB"):
+        image = image.convert("RGB")
+
+    return ImageOps.invert(image)
+
+
+def invert_image(*, input_image: Path, output_image: Path, overwrite: bool) -> None:
+    Image, _ = _lazy_import_pillow()
+
+    if output_image.exists() and not overwrite:
+        raise FileExistsError(
+            f"Output exists: {output_image}. Use --overwrite to replace it."
+        )
+
+    with Image.open(input_image) as image:
+        inverted = _invert_pil_image(image)
+        output_image.parent.mkdir(parents=True, exist_ok=True)
+        inverted.save(output_image)
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     script_dir = Path(__file__).resolve().parent
 
     p = argparse.ArgumentParser(
-        description="Invert all colors for PDFs in a folder (writes <name>_inverted.pdf).",
+        description=(
+            "Invert colors for PDFs and images in a folder "
+            "(writes <name>_inverted.*)."
+        ),
     )
     p.add_argument(
         "-i",
@@ -194,7 +273,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         dest="input_dir",
         type=Path,
         default=script_dir / "input",
-        help="Folder containing PDFs to invert (default: ./input next to the script)",
+        help="Folder containing PDFs/images to invert (default: ./input next to the script)",
     )
     p.add_argument(
         "-o",
@@ -203,19 +282,22 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         dest="output_dir",
         type=Path,
         default=script_dir / "output",
-        help="Folder for inverted PDFs (default: ./output next to the script)",
+        help="Folder for inverted files (default: ./output next to the script)",
     )
     p.add_argument(
         "-r",
         "--recursive",
         action="store_true",
-        help="Also process PDFs in subdirectories (preserves folder structure in output)",
+        help=(
+            "Also process files in subdirectories "
+            "(preserves folder structure in output)"
+        ),
     )
     p.add_argument(
         "--dpi",
         type=int,
         default=200,
-        help="Render DPI before inversion (higher = sharper but slower/bigger) (default: 200)",
+        help="Render DPI for PDFs (ignored for images) (default: 200)",
     )
     p.add_argument(
         "--password",
@@ -226,7 +308,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument(
         "--overwrite",
         action="store_true",
-        help="Overwrite output PDFs if they already exist",
+        help="Overwrite output files if they already exist",
     )
     p.add_argument(
         "--exit-zero",
@@ -245,9 +327,10 @@ def main(argv: list[str]) -> int:
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    inputs = list(_iter_input_pdfs_recursive(input_dir=input_dir, recursive=bool(args.recursive)))
+    inputs = list(_iter_supported_inputs(input_dir=input_dir, recursive=bool(args.recursive)))
     if not inputs:
-        print(f"No PDFs found in: {input_dir}", file=sys.stderr)
+        suffixes = ", ".join(sorted(SUPPORTED_SUFFIXES))
+        print(f"No supported files found in: {input_dir} (supported: {suffixes})", file=sys.stderr)
         return 0
 
     # Start from a clean output set for this batch (only delete files we would generate).
@@ -257,23 +340,30 @@ def main(argv: list[str]) -> int:
     succeeded = 0
     failed = 0
 
-    def _process_one(input_pdf: Path) -> tuple[Path, Path]:
-        output_pdf = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_pdf=input_pdf)
-        invert_pdf(
-            input_pdf=input_pdf,
-            output_pdf=output_pdf,
-            dpi=int(args.dpi),
-            password=args.password,
-            overwrite=bool(args.overwrite),
-        )
-        return input_pdf, output_pdf
+    def _process_one(input_path: Path) -> tuple[Path, Path]:
+        output_path = _build_output_path(output_dir=output_dir, input_dir=input_dir, input_path=input_path)
+        if input_path.suffix.lower() in PDF_SUFFIXES:
+            invert_pdf(
+                input_pdf=input_path,
+                output_pdf=output_path,
+                dpi=int(args.dpi),
+                password=args.password,
+                overwrite=bool(args.overwrite),
+            )
+        else:
+            invert_image(
+                input_image=input_path,
+                output_image=output_path,
+                overwrite=bool(args.overwrite),
+            )
+        return input_path, output_path
 
     processed = len(inputs)
 
     try:
-        for input_pdf in inputs:
+        for input_path in inputs:
             try:
-                _in, _out = _process_one(input_pdf)
+                _in, _out = _process_one(input_path)
                 succeeded += 1
                 try:
                     in_rel = _in.relative_to(input_dir)
@@ -284,10 +374,10 @@ def main(argv: list[str]) -> int:
             except Exception as exc:
                 failed += 1
                 try:
-                    in_rel = input_pdf.relative_to(input_dir)
+                    in_rel = input_path.relative_to(input_dir)
                     print(f"ERR {in_rel}: {exc}", file=sys.stderr)
                 except Exception:
-                    print(f"ERR {input_pdf.name}: {exc}", file=sys.stderr)
+                    print(f"ERR {input_path.name}: {exc}", file=sys.stderr)
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 0 if bool(args.exit_zero) else 130

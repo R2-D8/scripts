@@ -1,7 +1,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help venv deps clean_venv tools ffmpeg bootstrap bootstrap_prereqs png2bmp subimages video_downloader transcribe_media pdf_invert pdf_invert_keep_text ppt_to_pdf
+.PHONY: help venv deps clean_venv tools ffmpeg bootstrap bootstrap_prereqs png2bmp subimages video_downloader transcribe_media invert_colors pdf_invert pdf_invert_keep_text ppt_to_pdf
 
 VENV ?= .venv
 VENV_PYTHON := $(VENV)/bin/python
@@ -127,11 +127,11 @@ help:
 	@printf "  %-24s %s\n" "" "Args: ARGS='...' (optional)"
 	@printf "  %-24s %s\n" "" "Flags: -i/--input-dir  -o/--output-dir  -r/--recursive  -l/--language  --start/--end"
 	@printf "  %-24s %s\n" "" "Example: make transcribe_media"
-	@printf "  %-24s %s\n" "pdf_invert" "Invert PDFs (flattened) in pdf/invert_colors/input"
+	@printf "  %-24s %s\n" "invert_colors" "Invert PDFs/images (flattened for PDFs) in pdf/invert_colors/input"
 	@printf "  %-24s %s\n" "" "Args: ARGS='...' (optional)"
 	@printf "  %-24s %s\n" "" "Flags: -i/--input/--input-dir  -o/--output/--output-dir"
 	@printf "  %-24s %s\n" "" "       -r/--recursive  --dpi  --password  --overwrite  --exit-zero"
-	@printf "  %-24s %s\n" "" "Example: make pdf_invert"
+	@printf "  %-24s %s\n" "" "Example: make invert_colors"
 	@printf "  %-24s %s\n" "" "         ARGS='--overwrite'"
 	@printf "  %-24s %s\n" "pdf_invert_keep_text" "Invert PDFs but try to keep text selectable"
 	@printf "  %-24s %s\n" "" "Input: pdf/invert_colors_keep_text/input"
@@ -176,8 +176,10 @@ video_downloader: $(DEPS_STAMP) ffmpeg
 transcribe_media: $(DEPS_STAMP) ffmpeg
 	$(PYTHON) $(PYTHONFLAGS) video/transcribe_media/transcribe_media.py $(ARGS)
 
-pdf_invert: $(DEPS_STAMP)
-	$(PYTHON) $(PYTHONFLAGS) pdf/invert_colors/invert_pdf_colors.py $(ARGS)
+invert_colors: $(DEPS_STAMP)
+	$(PYTHON) $(PYTHONFLAGS) pdf/invert_colors/invert_colors.py $(ARGS)
+
+pdf_invert: invert_colors
 
 pdf_invert_keep_text: $(DEPS_STAMP)
 	$(PYTHON) $(PYTHONFLAGS) pdf/invert_colors_keep_text/invert_pdf_colors_keep_text.py $(ARGS)
