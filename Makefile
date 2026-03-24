@@ -1,7 +1,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help venv deps clean_venv tools ffmpeg bootstrap png2bmp subimages video_downloader transcribe_media pdf_invert pdf_invert_keep_text ppt_to_pdf
+.PHONY: help venv deps clean_venv tools ffmpeg bootstrap bootstrap_prereqs png2bmp subimages video_downloader transcribe_media pdf_invert pdf_invert_keep_text ppt_to_pdf
 
 VENV ?= .venv
 VENV_PYTHON := $(VENV)/bin/python
@@ -61,11 +61,41 @@ $(FFMPEG_BIN):
 	python3 $(TOOLS_DIR)/install_ffmpeg_static.py
 
 # One-shot setup for fresh machines.
-bootstrap: deps ffmpeg
+bootstrap: bootstrap_prereqs deps ffmpeg
+
+# Best-effort system prerequisite install for Linux distros.
+# Supports Ubuntu/Debian (apt-get) and Fedora (dnf).
+bootstrap_prereqs:
+	@set -e; \
+	if command -v python3 >/dev/null 2>&1 && python3 -c 'import venv' >/dev/null 2>&1; then \
+		exit 0; \
+	fi; \
+	if [ "$$(id -u)" -eq 0 ]; then SUDO=""; \
+	elif command -v sudo >/dev/null 2>&1; then SUDO="sudo"; \
+	else \
+		echo "Need elevated privileges to install missing system packages, but 'sudo' is not available." >&2; \
+		exit 2; \
+	fi; \
+	if command -v apt-get >/dev/null 2>&1; then \
+		echo "Installing prerequisites via apt-get (python3, python3-venv)"; \
+		$$SUDO apt-get update; \
+		$$SUDO apt-get install -y python3 python3-venv; \
+	elif command -v dnf >/dev/null 2>&1; then \
+		echo "Installing prerequisites via dnf (python3)"; \
+		$$SUDO dnf install -y python3; \
+	else \
+		echo "Unsupported package manager. Install python3 and Python venv support manually, then rerun 'make bootstrap'." >&2; \
+		exit 2; \
+	fi; \
+	if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import venv' >/dev/null 2>&1; then \
+		echo "python3 or venv is still unavailable after install." >&2; \
+		exit 2; \
+	fi
 
 help:
 	@printf "Setup:\n"
 	@printf "  %-24s %s\n" "bootstrap" "One-shot: create .venv, install deps, download ffmpeg"
+	@printf "  %-24s %s\n" "bootstrap_prereqs" "Install missing python3/venv prereqs (apt-get/dnf)"
 	@printf "  %-24s %s\n" "deps"      "Install Python deps into .venv (requirements.txt)"
 	@printf "  %-24s %s\n" "ffmpeg"    "Download local static ffmpeg into tools/ffmpeg"
 	@printf "  %-24s %s\n" "tools"     "Install all local tools (currently: ffmpeg)"
